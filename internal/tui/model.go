@@ -60,7 +60,11 @@ func (t tradeMode) label() string {
 	return ""
 }
 
-const newsPanelWidth = 44
+const (
+	newsPanelWidth    = 44
+	newsPanelMinWidth = 156 // terminal must be at least this wide to show the news panel
+	// full column set totals ~107 chars; 107 + 44 panel + 5 gutter = 156
+)
 
 type Model struct {
 	g            *game.Game
@@ -511,12 +515,20 @@ func (m Model) viewMenu() string {
 		styleBorder.Padding(2, 4).Render(content))
 }
 
+func (m Model) showNewsPanel() bool {
+	w := m.width
+	if w == 0 {
+		w = 160
+	}
+	return w >= newsPanelMinWidth
+}
+
 func (m Model) tableWidth() int {
 	w := m.width
 	if w == 0 {
 		w = 160
 	}
-	if w > newsPanelWidth+20 {
+	if m.showNewsPanel() {
 		return w - newsPanelWidth - 1
 	}
 	return w
@@ -587,32 +599,51 @@ func (m Model) viewMarket() string {
 		pct := s.ChangePct()
 		cs := colorForChange(pct)
 
-		// influence indicator
 		inf := m.g.Market.StockInfluenceStrength(s.Symbol)
-		infStr := " "
+		infChar := " "
 		if inf > 0.1 {
-			infStr = stylePositive.Render("↑")
+			infChar = "↑"
 		} else if inf < -0.1 {
-			infStr = styleNegative.Render("↓")
+			infChar = "↓"
+		}
+		infStyled := infChar
+		if inf > 0.1 {
+			infStyled = stylePositive.Render(infChar)
+		} else if inf < -0.1 {
+			infStyled = styleNegative.Render(infChar)
 		}
 
-		row := padR(s.Symbol, 7) +
-			padR(truncate(s.Name, 19), 20) +
-			padR(truncate(string(s.Industry), 12), 13) +
-			padR(fmt.Sprintf("$%.2f", s.Price), 9) +
-			cs.Render(padR(fmt.Sprintf("%s%.2f", signStr(chg), chg), 9)) +
-			cs.Render(padR(fmt.Sprintf("%s%.2f%%", signStr(pct), pct), 8)) +
-			padR(commaf(float64(s.Volume)), 11) +
-			padR(market.FormatMarketCap(s.MarketCap), 10) +
-			padR(fmt.Sprintf("%.1f", s.PERatio), 6) +
-			padR(fmt.Sprintf("%.2f", s.Beta), 5) +
-			sparkline(s.History, 8) +
-			infStr
+		chgStr := padR(fmt.Sprintf("%s%.2f", signStr(chg), chg), 9)
+		pctStr := padR(fmt.Sprintf("%s%.2f%%", signStr(pct), pct), 8)
+		spark := sparklineChars(s.History, 8)
 
 		if i == m.cursor {
-			rows.WriteString(styleSelected.Render(row) + "\n")
+			// Plain text row — no embedded ANSI so styleSelected can measure it correctly
+			plain := padR(s.Symbol, 7) +
+				padR(truncate(s.Name, 19), 20) +
+				padR(truncate(string(s.Industry), 12), 13) +
+				padR(fmt.Sprintf("$%.2f", s.Price), 9) +
+				chgStr +
+				pctStr +
+				padR(commafInt(s.Volume), 11) +
+				padR(market.FormatMarketCap(s.MarketCap), 10) +
+				padR(fmt.Sprintf("%.1f", s.PERatio), 6) +
+				padR(fmt.Sprintf("%.2f", s.Beta), 5) +
+				spark + infChar
+			rows.WriteString(styleSelected.Render(plain) + "\n")
 		} else {
-			rows.WriteString(lipgloss.NewStyle().Foreground(colorWhite).Render(row) + "\n")
+			colored := padR(s.Symbol, 7) +
+				padR(truncate(s.Name, 19), 20) +
+				padR(truncate(string(s.Industry), 12), 13) +
+				padR(fmt.Sprintf("$%.2f", s.Price), 9) +
+				cs.Render(chgStr) +
+				cs.Render(pctStr) +
+				padR(commafInt(s.Volume), 11) +
+				padR(market.FormatMarketCap(s.MarketCap), 10) +
+				padR(fmt.Sprintf("%.1f", s.PERatio), 6) +
+				padR(fmt.Sprintf("%.2f", s.Beta), 5) +
+				sparkline(s.History, 8) + infStyled
+			rows.WriteString(colored + "\n")
 		}
 	}
 
@@ -641,7 +672,7 @@ func (m Model) viewMarket() string {
 		keys
 
 	// ── news panel ────────────────────────────────────────────────────────
-	if w <= newsPanelWidth+20 {
+	if !m.showNewsPanel() {
 		return tableContent
 	}
 
@@ -1208,17 +1239,70 @@ func (m Model) viewTrade() string {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 func padR(s string, width int) string {
-	if len(s) >= width {
-		return s[:width]
+	runes := []rune(s)
+	if len(runes) >= width {
+		return string(runes[:width])
 	}
-	return s + strings.Repeat(" ", width-len(s))
+	return s + strings.Repeat(" ", width-len(runes))
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	return string(runes[:max-1]) + "…"
+}
+
+// commafInt formats an integer with thousands separators and no decimal places.
+func commafInt(v int64) string {
+	s := fmt.Sprintf("%d", v)
+	neg := ""
+	if strings.HasPrefix(s, "-") {
+		neg = "-"
+		s = s[1:]
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return neg + string(result)
+}
+
+// sparklineChars returns the spark bar characters without any ANSI color codes,
+// used when the row will be wrapped in styleSelected (which sets its own colors).
+func sparklineChars(history []market.PricePoint, width int) string {
+	if len(history) < 2 {
+		return strings.Repeat(" ", width)
+	}
+	bars := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+	n := width
+	if len(history) < n {
+		n = len(history)
+	}
+	pts := history[len(history)-n:]
+	min, max := pts[0].Price, pts[0].Price
+	for _, p := range pts {
+		if p.Price < min {
+			min = p.Price
+		}
+		if p.Price > max {
+			max = p.Price
+		}
+	}
+	rng := max - min
+	result := make([]rune, len(pts))
+	for i, p := range pts {
+		idx := 0
+		if rng > 0 {
+			idx = int((p.Price-min)/rng*float64(len(bars)-1))
+		}
+		result[i] = bars[idx]
+	}
+	return string(result)
 }
 
 func truncateLine(s string, max int) string {
