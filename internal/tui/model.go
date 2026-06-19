@@ -58,9 +58,8 @@ func (t tradeMode) label() string {
 }
 
 const (
-	newsPanelWidth    = 44
-	newsPanelMinWidth = 156 // terminal must be at least this wide to show the news panel
-	// full column set totals ~107 chars; 107 + 44 panel + 5 gutter = 156
+	newsPanelWidth    = 40
+	newsPanelMinWidth = 112 // compact cols (~70) + panel (40) + border (1) + gutter
 )
 
 type Model struct {
@@ -84,6 +83,7 @@ type Model struct {
 	flashNews    *market.NewsEvent // newly arrived event, flashes briefly
 	flashTicks   int
 	newsScroll   int
+	newsVisible  bool // toggled with 'n'; auto-enabled when terminal is wide enough
 }
 
 func NewModel(g *game.Game) Model {
@@ -104,6 +104,7 @@ func NewModel(g *game.Game) Model {
 		sortAsc:     true,
 		inputShares: ti,
 		inputPrice:  tp,
+		newsVisible: true,
 	}
 	m.refreshStocks()
 	return m
@@ -284,6 +285,8 @@ func (m Model) handleMarketKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sortAsc = true
 		}
 		m.sortStocks()
+	case "n":
+		m.newsVisible = !m.newsVisible
 	case "pgup":
 		m.newsScroll -= 3
 		if m.newsScroll < 0 {
@@ -507,6 +510,9 @@ func (m Model) viewMenu() string {
 }
 
 func (m Model) showNewsPanel() bool {
+	if !m.newsVisible {
+		return false
+	}
 	w := m.width
 	if w == 0 {
 		w = 160
@@ -572,12 +578,24 @@ func (m Model) viewMarket() string {
 	}
 
 	// ── column headers ───────────────────────────────────────────────────
-	colHeader := padR("SYMBOL", 7) + padR("NAME", 20) + padR("INDUSTRY", 13) +
-		padR("PRICE", 9) + padR("CHG", 9) + padR("CHG%", 8) +
-		padR("VOLUME", 11) + padR("MKT CAP", 10) + padR("P/E", 6) + padR("β", 5) + "SPARK"
+	// Switch to a compact column set when the news panel is visible so both fit.
+	// Compact drops: absolute CHG, VOLUME, P/E; narrows NAME and INDUSTRY.
+	// Compact total: ~71 chars. Full total: ~107 chars.
+	compact := m.showNewsPanel()
+
+	var colHeader string
+	if compact {
+		colHeader = padR("SYMBOL", 7) + padR("NAME", 15) + padR("PRICE", 9) +
+			padR("CHG%", 8) + padR("INDUSTRY", 12) + padR("MKT CAP", 9) +
+			padR("β", 5) + "SPARK"
+	} else {
+		colHeader = padR("SYMBOL", 7) + padR("NAME", 20) + padR("INDUSTRY", 13) +
+			padR("PRICE", 9) + padR("CHG", 9) + padR("CHG%", 8) +
+			padR("VOLUME", 11) + padR("MKT CAP", 10) + padR("P/E", 6) + padR("β", 5) + "SPARK"
+	}
 
 	// ── rows ─────────────────────────────────────────────────────────────
-	visibleHeight := m.height - 9
+	visibleHeight := max(m.height-9, 1)
 	start := 0
 	if m.cursor >= visibleHeight {
 		start = m.cursor - visibleHeight + 1
@@ -604,37 +622,67 @@ func (m Model) viewMarket() string {
 			infStyled = styleNegative.Render(infChar)
 		}
 
-		chgStr := padR(fmt.Sprintf("%s%.2f", signStr(chg), chg), 9)
 		pctStr := padR(fmt.Sprintf("%s%.2f%%", signStr(pct), pct), 8)
-		spark := sparklineChars(s.History, 8)
 
-		if i == m.cursor {
-			// Plain text row — no embedded ANSI so styleSelected can measure it correctly
-			plain := padR(s.Symbol, 7) +
-				padR(truncate(s.Name, 19), 20) +
-				padR(truncate(string(s.Industry), 12), 13) +
-				padR(fmt.Sprintf("$%.2f", s.Price), 9) +
-				chgStr +
-				pctStr +
-				padR(commafInt(s.Volume), 11) +
-				padR(market.FormatMarketCap(s.MarketCap), 10) +
-				padR(fmt.Sprintf("%.1f", s.PERatio), 6) +
-				padR(fmt.Sprintf("%.2f", s.Beta), 5) +
-				spark + infChar
-			rows.WriteString(styleSelected.Render(plain) + "\n")
+		if compact {
+			spark := sparklineChars(s.History, 6)
+			var b strings.Builder
+			if i == m.cursor {
+				b.WriteString(padR(s.Symbol, 7))
+				b.WriteString(padR(truncate(s.Name, 14), 15))
+				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(pctStr)
+				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
+				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 9))
+				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
+				b.WriteString(spark)
+				b.WriteString(infChar)
+				rows.WriteString(styleSelected.Render(b.String()) + "\n")
+			} else {
+				b.WriteString(padR(s.Symbol, 7))
+				b.WriteString(padR(truncate(s.Name, 14), 15))
+				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(cs.Render(pctStr))
+				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
+				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 9))
+				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
+				b.WriteString(sparkline(s.History, 6))
+				b.WriteString(infStyled)
+				rows.WriteString(b.String() + "\n")
+			}
 		} else {
-			colored := padR(s.Symbol, 7) +
-				padR(truncate(s.Name, 19), 20) +
-				padR(truncate(string(s.Industry), 12), 13) +
-				padR(fmt.Sprintf("$%.2f", s.Price), 9) +
-				cs.Render(chgStr) +
-				cs.Render(pctStr) +
-				padR(commafInt(s.Volume), 11) +
-				padR(market.FormatMarketCap(s.MarketCap), 10) +
-				padR(fmt.Sprintf("%.1f", s.PERatio), 6) +
-				padR(fmt.Sprintf("%.2f", s.Beta), 5) +
-				sparkline(s.History, 8) + infStyled
-			rows.WriteString(colored + "\n")
+			chgStr := padR(fmt.Sprintf("%s%.2f", signStr(chg), chg), 9)
+			spark := sparklineChars(s.History, 8)
+			var b strings.Builder
+			if i == m.cursor {
+				b.WriteString(padR(s.Symbol, 7))
+				b.WriteString(padR(truncate(s.Name, 19), 20))
+				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
+				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(chgStr)
+				b.WriteString(pctStr)
+				b.WriteString(padR(commafInt(s.Volume), 11))
+				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 10))
+				b.WriteString(padR(fmt.Sprintf("%.1f", s.PERatio), 6))
+				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
+				b.WriteString(spark)
+				b.WriteString(infChar)
+				rows.WriteString(styleSelected.Render(b.String()) + "\n")
+			} else {
+				b.WriteString(padR(s.Symbol, 7))
+				b.WriteString(padR(truncate(s.Name, 19), 20))
+				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
+				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(cs.Render(chgStr))
+				b.WriteString(cs.Render(pctStr))
+				b.WriteString(padR(commafInt(s.Volume), 11))
+				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 10))
+				b.WriteString(padR(fmt.Sprintf("%.1f", s.PERatio), 6))
+				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
+				b.WriteString(sparkline(s.History, 8))
+				b.WriteString(infStyled)
+				rows.WriteString(b.String() + "\n")
+			}
 		}
 	}
 
@@ -648,7 +696,7 @@ func (m Model) viewMarket() string {
 		msgLine = " " + styleNeutral.Render(m.g.Messages[len(m.g.Messages)-1])
 	}
 
-	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  1-5=sort  q=quit")
+	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  1-5=sort  n=news  q=quit")
 
 	div := styleNeutral.Render(strings.Repeat("─", tW))
 
@@ -874,7 +922,7 @@ func (m Model) viewStock() string {
 		styleWhiteStr(s.Name) + "  " +
 		styleNeutral.Render(string(s.Industry)) + infStr
 
-	priceBar := lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ")) +
+	priceBar := lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ", s.Price)) +
 		cs.Render(fmt.Sprintf("%s%.2f  (%s%.2f%%)", signStr(chg), chg, signStr(pct), pct))
 
 	tabs := ""
@@ -1152,7 +1200,7 @@ func (m Model) viewTrade() string {
 
 	title := styleTitle.Render(m.tradeMode.label()) + "  " + styleWhiteStr(m.stockSymbol) + "  " + styleWhiteStr(s.Name)
 	priceInfo := styleWhiteStr("Current: ") +
-		lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ")) +
+		lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ", s.Price)) +
 		cs.Render(fmt.Sprintf("(%s%.2f%%)", signStr(pct), pct))
 
 	var inputSection string
