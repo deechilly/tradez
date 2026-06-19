@@ -27,9 +27,6 @@ const (
 	screenTrade
 )
 
-type tickMsg struct {
-	newEvent *market.NewsEvent
-}
 
 type tradeMode int
 
@@ -159,15 +156,9 @@ func (m *Model) sortStocks() {
 	}
 }
 
-func tick() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-		return t // placeholder; actual tick is fired from Update
-	})
-}
-
 func (m Model) Init() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-		return tickMsg{}
+		return t
 	})
 }
 
