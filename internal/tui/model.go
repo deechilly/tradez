@@ -20,6 +20,7 @@ type screen int
 
 const (
 	screenMenu screen = iota
+	screenCapital
 	screenMarket
 	screenStock
 	screenPortfolio
@@ -63,27 +64,28 @@ const (
 )
 
 type Model struct {
-	g            *game.Game
-	screen       screen
-	width        int
-	height       int
-	cursor       int
-	stockSymbol  string
-	sortCol      int
-	sortAsc      bool
-	tab          int
-	tradeMode    tradeMode
-	inputShares  textinput.Model
-	inputPrice   textinput.Model
-	inputFocus   int
-	errMsg       string
-	okMsg        string
-	msgTimer     int
-	stocks       []*market.Stock
-	flashNews    *market.NewsEvent // newly arrived event, flashes briefly
-	flashTicks   int
-	newsScroll   int
-	newsVisible  bool // toggled with 'n'; auto-enabled when terminal is wide enough
+	g                 *game.Game
+	screen            screen
+	pendingDifficulty game.Difficulty
+	width             int
+	height            int
+	cursor            int
+	stockSymbol       string
+	sortCol           int
+	sortAsc           bool
+	tab               int
+	tradeMode         tradeMode
+	inputShares       textinput.Model
+	inputPrice        textinput.Model
+	inputFocus        int
+	errMsg            string
+	okMsg             string
+	msgTimer          int
+	stocks            []*market.Stock
+	flashNews         *market.NewsEvent // newly arrived event, flashes briefly
+	flashTicks        int
+	newsScroll        int
+	newsVisible       bool // toggled with 'n'; auto-enabled when terminal is wide enough
 }
 
 func NewModel(g *game.Game) Model {
@@ -208,6 +210,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenMenu:
 		return m.handleMenuKey(msg)
+	case screenCapital:
+		return m.handleCapitalKey(msg)
 	case screenMarket:
 		return m.handleMarketKey(msg)
 	case screenStock:
@@ -225,17 +229,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "1":
-		m.g.Cash = game.DifficultyEasy.StartingCash()
-		m.g.Difficulty = game.DifficultyEasy
-		m.screen = screenMarket
+		m.pendingDifficulty = game.DifficultyEasy
+		m.screen = screenCapital
 	case "2":
-		m.g.Cash = game.DifficultyMedium.StartingCash()
-		m.g.Difficulty = game.DifficultyMedium
+		m.pendingDifficulty = game.DifficultyNormal
+		m.screen = screenCapital
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) handleCapitalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	startGame := func(cash float64) {
+		m.g.Cash = cash
+		m.g.StartingCash = cash
+		m.g.Difficulty = m.pendingDifficulty
+		m.g.Market.ScheduleFirstNews()
 		m.screen = screenMarket
+	}
+	switch msg.String() {
+	case "1":
+		startGame(1_000_000)
+	case "2":
+		startGame(50_000)
 	case "3":
-		m.g.Cash = game.DifficultyHard.StartingCash()
-		m.g.Difficulty = game.DifficultyHard
-		m.screen = screenMarket
+		startGame(1_000)
+	case "esc":
+		m.screen = screenMenu
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	}
@@ -464,6 +485,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenMenu:
 		return m.viewMenu()
+	case screenCapital:
+		return m.viewCapital()
 	case screenMarket:
 		return m.viewMarket()
 	case screenStock:
@@ -494,9 +517,8 @@ func (m Model) viewMenu() string {
 	sub := styleNeutral.Render("  A terminal trading simulator")
 
 	opts := []string{
-		stylePositive.Render("  [1] ") + styleWhiteStr("Easy   — $1,000,000 starting capital"),
-		styleYellowStr("  [2] ") + styleWhiteStr("Medium — $50,000 starting capital"),
-		styleNegative.Render("  [3] ") + styleWhiteStr("Hard   — $1,000 starting capital"),
+		stylePositive.Render("  [1] ") + styleWhiteStr("Easy   — influence timers and full analyst insights visible"),
+		styleYellowStr("  [2] ") + styleWhiteStr("Normal — market signals are hidden; read the tape yourself"),
 		"",
 		styleNeutral.Render("  [q] Quit"),
 	}
@@ -504,6 +526,33 @@ func (m Model) viewMenu() string {
 	content := logo + "\n\n" + sub + "\n\n" +
 		styleHeader.Render("  Select Difficulty") + "\n\n" +
 		strings.Join(opts, "\n")
+
+	return lipgloss.Place(w, m.height, lipgloss.Center, lipgloss.Center,
+		styleBorder.Padding(2, 4).Render(content))
+}
+
+func (m Model) viewCapital() string {
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+
+	diffLabel := stylePositive.Render("Easy")
+	if m.pendingDifficulty == game.DifficultyNormal {
+		diffLabel = styleYellowStr("Normal")
+	}
+
+	opts := []string{
+		styleNeutral.Render("  [1] ") + styleWhiteStr("$1,000,000") + styleNeutral.Render("  — maximum buying power"),
+		styleNeutral.Render("  [2] ") + styleWhiteStr("$50,000") + styleNeutral.Render("   — moderate start"),
+		styleNeutral.Render("  [3] ") + styleWhiteStr("$1,000") + styleNeutral.Render("    — hard mode capital"),
+		"",
+		styleHint.Render("  [esc] Back"),
+	}
+
+	content := styleHeader.Render("  Starting Capital") +
+		styleNeutral.Render("  (difficulty: ") + diffLabel + styleNeutral.Render(")") +
+		"\n\n" + strings.Join(opts, "\n")
 
 	return lipgloss.Place(w, m.height, lipgloss.Center, lipgloss.Center,
 		styleBorder.Padding(2, 4).Render(content))
@@ -540,8 +589,7 @@ func (m Model) viewMarket() string {
 
 	// ── header bar ──────────────────────────────────────────────────────
 	portfolioVal := m.g.PortfolioValue()
-	startVal := m.g.Difficulty.StartingCash()
-	pnl := portfolioVal - startVal
+	pnl := portfolioVal - m.g.StartingCash
 	pnlStyle := colorForChange(pnl)
 
 	nextNews := m.g.Market.NextNewsIn()
@@ -581,15 +629,31 @@ func (m Model) viewMarket() string {
 	// Switch to a compact column set when the news panel is visible so both fit.
 	// Compact drops: absolute CHG, VOLUME, P/E; narrows NAME and INDUSTRY.
 	// Compact total: ~71 chars. Full total: ~107 chars.
-	compact := m.showNewsPanel()
+	compact := tW < 108
+
+	// nameW fills the remaining table width after all fixed columns.
+	// compact fixed: SYMBOL(7)+PRICE(9)+CHG%(8)+INDUSTRY(12)+MKTCAP(9)+β(5)+SPARK(6)+inf(1) = 57
+	// full fixed:    SYMBOL(7)+INDUSTRY(13)+PRICE(9)+CHG(9)+CHG%(8)+VOLUME(11)+MKTCAP(10)+P/E(6)+β(5)+SPARK(8)+inf(1) = 87
+	var nameW int
+	if compact {
+		nameW = tW - 57
+		if nameW < 15 {
+			nameW = 15
+		}
+	} else {
+		nameW = tW - 87
+		if nameW < 20 {
+			nameW = 20
+		}
+	}
 
 	var colHeader string
 	if compact {
-		colHeader = padR("SYMBOL", 7) + padR("NAME", 15) + padR("PRICE", 9) +
+		colHeader = padR("SYMBOL", 7) + padR("NAME", nameW) + padR("PRICE", 9) +
 			padR("CHG%", 8) + padR("INDUSTRY", 12) + padR("MKT CAP", 9) +
 			padR("β", 5) + "SPARK"
 	} else {
-		colHeader = padR("SYMBOL", 7) + padR("NAME", 20) + padR("INDUSTRY", 13) +
+		colHeader = padR("SYMBOL", 7) + padR("NAME", nameW) + padR("INDUSTRY", 13) +
 			padR("PRICE", 9) + padR("CHG", 9) + padR("CHG%", 8) +
 			padR("VOLUME", 11) + padR("MKT CAP", 10) + padR("P/E", 6) + padR("β", 5) + "SPARK"
 	}
@@ -629,7 +693,7 @@ func (m Model) viewMarket() string {
 			var b strings.Builder
 			if i == m.cursor {
 				b.WriteString(padR(s.Symbol, 7))
-				b.WriteString(padR(truncate(s.Name, 14), 15))
+				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
 				b.WriteString(pctStr)
 				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
@@ -640,7 +704,7 @@ func (m Model) viewMarket() string {
 				rows.WriteString(styleSelected.Render(b.String()) + "\n")
 			} else {
 				b.WriteString(padR(s.Symbol, 7))
-				b.WriteString(padR(truncate(s.Name, 14), 15))
+				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
 				b.WriteString(cs.Render(pctStr))
 				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
@@ -656,7 +720,7 @@ func (m Model) viewMarket() string {
 			var b strings.Builder
 			if i == m.cursor {
 				b.WriteString(padR(s.Symbol, 7))
-				b.WriteString(padR(truncate(s.Name, 19), 20))
+				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
 				b.WriteString(chgStr)
@@ -670,7 +734,7 @@ func (m Model) viewMarket() string {
 				rows.WriteString(styleSelected.Render(b.String()) + "\n")
 			} else {
 				b.WriteString(padR(s.Symbol, 7))
-				b.WriteString(padR(truncate(s.Name, 19), 20))
+				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
 				b.WriteString(cs.Render(chgStr))
@@ -771,7 +835,7 @@ func (m Model) renderNewsPanel(height int) string {
 				}
 
 				t := ""
-				if i == 0 {
+				if i == 0 && m.g.Difficulty.ShowInfluenceTimer() {
 					t = styleNeutral.Render(" " + timeStr)
 				}
 				line := arrow + " " +
@@ -1413,8 +1477,7 @@ func (m Model) viewPortfolio() string {
 	}
 
 	portfolioVal := m.g.PortfolioValue()
-	startVal := m.g.Difficulty.StartingCash()
-	totalPnL := portfolioVal - startVal
+	totalPnL := portfolioVal - m.g.StartingCash
 
 	header := styleTitle.Render(" PORTFOLIO ") +
 		styleNeutral.Render("  Value: ") + styleAccentStr(fmt.Sprintf("$%s", commaf(portfolioVal))) +

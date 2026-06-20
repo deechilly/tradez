@@ -8,33 +8,24 @@ import (
 type Difficulty int
 
 const (
-	DifficultyEasy   Difficulty = iota // $1,000,000
-	DifficultyMedium                   // $50,000
-	DifficultyHard                     // $1,000
+	DifficultyEasy   Difficulty = iota
+	DifficultyNormal
 )
-
-func (d Difficulty) StartingCash() float64 {
-	switch d {
-	case DifficultyEasy:
-		return 1_000_000
-	case DifficultyMedium:
-		return 50_000
-	case DifficultyHard:
-		return 1_000
-	}
-	return 50_000
-}
 
 func (d Difficulty) String() string {
 	switch d {
 	case DifficultyEasy:
-		return "Easy ($1,000,000)"
-	case DifficultyMedium:
-		return "Medium ($50,000)"
-	case DifficultyHard:
-		return "Hard ($1,000)"
+		return "Easy"
+	case DifficultyNormal:
+		return "Normal"
 	}
 	return "Unknown"
+}
+
+// ShowInfluenceTimer controls whether the time remaining on active market
+// influences is visible in the news panel.
+func (d Difficulty) ShowInfluenceTimer() bool {
+	return d == DifficultyEasy
 }
 
 type OrderType int
@@ -105,21 +96,20 @@ func (p *Position) LongPnL(price float64) float64 {
 }
 
 type Game struct {
-	Market     *market.Market
-	Cash       float64
-	Positions  map[string]*Position
-	Orders     []*Order
+	Market      *market.Market
+	Cash        float64
+	StartingCash float64
+	Positions   map[string]*Position
+	Orders      []*Order
 	nextOrderID int
-	Difficulty Difficulty
-	Messages   []string
+	Difficulty  Difficulty
+	Messages    []string
 }
 
-func New(m *market.Market, diff Difficulty) *Game {
+func New(m *market.Market) *Game {
 	return &Game{
 		Market:    m,
-		Cash:      diff.StartingCash(),
 		Positions: make(map[string]*Position),
-		Difficulty: diff,
 	}
 }
 

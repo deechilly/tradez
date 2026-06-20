@@ -34,6 +34,15 @@ func (m *Market) scheduleNextNews() {
 	m.nextNewsAt = time.Now().Add(time.Duration(seconds) * time.Second)
 }
 
+// ScheduleFirstNews resets the news timer so the first event fires within
+// 30 seconds of the player starting a game.
+func (m *Market) ScheduleFirstNews() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seconds := 5 + m.rng.Intn(26) // 5–30 seconds
+	m.nextNewsAt = time.Now().Add(time.Duration(seconds) * time.Second)
+}
+
 func (m *Market) Tick() (newEvent *NewsEvent) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

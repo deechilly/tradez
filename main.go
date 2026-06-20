@@ -15,7 +15,7 @@ func main() {
 	seed := time.Now().UnixNano()
 
 	m := market.New(seed)
-	g := game.New(m, game.DifficultyMedium)
+	g := game.New(m)
 
 	model := tui.NewModel(g)
 
