@@ -42,15 +42,24 @@ Requires Go 1.21+.
 
 ---
 
-## Difficulty
+## Difficulty & Starting Capital
 
-At launch, choose a starting capital level. Difficulty also controls access to the analyst assist feature.
+At launch you make two choices independently.
 
-| Mode   | Starting Capital | Challenge                                              |
-|--------|-----------------|--------------------------------------------------------|
-| Easy   | $1,000,000      | Comfortable margin for error; diversify freely         |
-| Medium | $50,000         | Limited capital forces prioritisation                  |
-| Hard   | $1,000          | One bad trade can end your run; timing is everything   |
+**Difficulty** controls what information is visible:
+
+| Mode   | Insight level                                                                 |
+|--------|-------------------------------------------------------------------------------|
+| Easy   | Influence countdown timers shown in Market Feed; full analyst view available  |
+| Normal | Timers hidden — judge influence strength and duration from the bar chart alone |
+
+**Starting capital** is chosen separately and works the same in both modes:
+
+| Capital    | Challenge                                                      |
+|------------|----------------------------------------------------------------|
+| $1,000,000 | Comfortable margin for error; diversify freely                 |
+| $50,000    | Limited capital forces prioritisation                          |
+| $1,000     | One bad trade can end your run; timing is everything           |
 
 ---
 
@@ -90,7 +99,7 @@ Beta determines how much a stock amplifies broader swings. High-beta stocks (cry
 
 ## News Events
 
-Every **1 to 5 minutes**, a world event is generated and posted to the Market Feed. Events are drawn from 54 templates across 12 categories:
+The **first event fires within 30 seconds** of starting a game, so you have something to react to immediately. After that, events fire every **1 to 5 minutes**. A world event is generated and posted to the Market Feed. Events are drawn from 54 templates across 12 categories:
 
 | Category   | Badge colour | Typical effect                                           |
 |------------|-------------|-----------------------------------------------------------|
@@ -138,7 +147,7 @@ When a news event fires:
 The right-side **Market Feed** panel shows:
 
 - **BREAKING** banner with the full headline when a new event fires
-- **Active Influences** section: one row per affected group, showing direction (▲/▼), targets, strength bar, and time remaining — both winners and losers visible at once
+- **Active Influences** section: one row per affected group, showing direction (▲/▼), targets, strength bar, and (in Easy mode) time remaining — both winners and losers visible at once
 - Full news history with category badge, time elapsed, sentiment arrow, and affected targets
 
 The news panel can be toggled with `n` if terminal width is limited. Influence indicators (▲/▼) appear next to each affected stock in the main market table, coloured to show the direction for *that specific stock*.
@@ -245,7 +254,7 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 
 | Key     | Action                                                            |
 |---------|-------------------------------------------------------------------|
-| `tab`   | Cycle tabs: Chart → Details → Analysis (Easy) → Chart            |
+| `tab`   | Cycle tabs: Chart → Details → Analysis → Chart                   |
 | `b`     | Market buy                                                        |
 | `s`     | Market sell                                                       |
 | `l`     | Limit buy                                                         |
@@ -279,9 +288,9 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 - **M&A and EARNINGS events are sharp but company-specific.** An acquisition rumour can spike a stock instantly. These are the fastest in-and-out opportunities — and the fastest risks if you're on the wrong side.
 - **High-beta stocks amplify everything.** Crypto and Tech overshoot both up and down relative to other sectors under the same news event.
 - **Limit orders let you pre-position.** If a DISASTER event just hit Real Estate, set limit buys below current price and wait for the panic to bottom out before the influence fades.
-- **Influence strength bars tell you how much runway is left.** A nearly expired influence with a stock still moving is a contrarian signal — the drift is about to disappear.
-- **On Easy mode, use the Analysis tab before entering a position.** Check whether the technicals and fundamentals agree with the news signal before committing capital.
-- **On Hard mode**, the sparkline in the market table is your best friend — spot micro-trends without opening each stock.
+- **Influence strength bars tell you how much runway is left.** A nearly expired influence with a stock still moving is a contrarian signal — the drift is about to disappear. On Easy mode the countdown timer makes this exact; on Normal mode learn to read the bar decay.
+- **Use the Analysis tab before entering a position.** Check whether the technicals and fundamentals agree with the news signal before committing capital.
+- **The sparkline in the market table is your best friend** for spotting micro-trends without opening each stock — especially useful when capital is tight.
 
 ---
 
