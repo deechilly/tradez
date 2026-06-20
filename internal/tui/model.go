@@ -315,11 +315,7 @@ func (m Model) handleStockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.openTrade(tradeCover)
 	case "tab":
-		tabCount := 2
-		if m.g.Difficulty == game.DifficultyEasy {
-			tabCount = 3
-		}
-		m.tab = (m.tab + 1) % tabCount
+		m.tab = (m.tab + 1) % 3
 	}
 	return m, nil
 }
@@ -947,10 +943,7 @@ func (m Model) viewStock() string {
 	priceBar := lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ", s.Price)) +
 		cs.Render(fmt.Sprintf("%s%.2f  (%s%.2f%%)", signStr(chg), chg, signStr(pct), pct))
 
-	tabNames := []string{"Chart", "Details"}
-	if m.g.Difficulty == game.DifficultyEasy {
-		tabNames = append(tabNames, "Analysis")
-	}
+	tabNames := []string{"Chart", "Details", "Analysis"}
 	tabs := ""
 	for i, t := range tabNames {
 		if i == m.tab {
@@ -967,9 +960,7 @@ func (m Model) viewStock() string {
 	case 1:
 		content = m.renderDetails(s)
 	case 2:
-		if m.g.Difficulty == game.DifficultyEasy {
-			content = m.renderAnalysis(s)
-		}
+		content = m.renderAnalysis(s)
 	}
 
 	posSummary := ""
@@ -1004,10 +995,7 @@ func (m Model) viewStock() string {
 	}
 
 	div := styleNeutral.Render(strings.Repeat("─", w))
-	tabHint := "tab=chart/details"
-	if m.g.Difficulty == game.DifficultyEasy {
-		tabHint = "tab=chart/details/analysis"
-	}
+	tabHint := "tab=chart/details/analysis"
 	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  " + tabHint + "  esc=back")
 
 	return title + "\n" + priceBar + "\n" +
@@ -1283,7 +1271,7 @@ func (m Model) renderAnalysis(s *market.Stock) string {
 
 	var b strings.Builder
 
-	b.WriteString(styleHint.Render("  Easy Mode — Analyst Assist") + "\n")
+	b.WriteString(styleHint.Render("  Analyst View") + "\n")
 	b.WriteString(div + "\n\n")
 
 	b.WriteString(styleHeader.Render("  FUNDAMENTALS") + "  " + scoreTag(fundScore) + "\n")
