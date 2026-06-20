@@ -315,7 +315,11 @@ func (m Model) handleStockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.openTrade(tradeCover)
 	case "tab":
-		m.tab = (m.tab + 1) % 2
+		tabCount := 2
+		if m.g.Difficulty == game.DifficultyEasy {
+			tabCount = 3
+		}
+		m.tab = (m.tab + 1) % tabCount
 	}
 	return m, nil
 }
@@ -1000,7 +1004,11 @@ func (m Model) viewStock() string {
 	}
 
 	div := styleNeutral.Render(strings.Repeat("─", w))
-	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  tab=chart/details  esc=back")
+	tabHint := "tab=chart/details"
+	if m.g.Difficulty == game.DifficultyEasy {
+		tabHint = "tab=chart/details/analysis"
+	}
+	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  " + tabHint + "  esc=back")
 
 	return title + "\n" + priceBar + "\n" +
 		div + "\n" +
