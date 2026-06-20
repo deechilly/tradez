@@ -629,33 +629,32 @@ func (m Model) viewMarket() string {
 	// Switch to a compact column set when the news panel is visible so both fit.
 	// Compact drops: absolute CHG, VOLUME, P/E; narrows NAME and INDUSTRY.
 	// Compact total: ~71 chars. Full total: ~107 chars.
-	compact := tW < 108
+	// compact: SYMBOL(7)+PRICE(9)+OPEN(9)+CHG%(8)+IND(9)+β(5)+SPARK(6)+inf(1) = 54
+	// full:    SYMBOL(7)+IND(9)+PRICE(9)+OPEN(9)+HIGH(9)+LOW(9)+CHG(9)+CHG%(8)+VOL(11)+MCAP(10)+β(5)+SPARK(8)+inf(1) = 104
+	compact := tW < 119
 
-	// nameW fills the remaining table width after all fixed columns.
-	// compact fixed: SYMBOL(7)+PRICE(9)+CHG%(8)+INDUSTRY(12)+MKTCAP(9)+β(5)+SPARK(6)+inf(1) = 57
-	// full fixed:    SYMBOL(7)+INDUSTRY(13)+PRICE(9)+CHG(9)+CHG%(8)+VOLUME(11)+MKTCAP(10)+P/E(6)+β(5)+SPARK(8)+inf(1) = 87
 	var nameW int
 	if compact {
-		nameW = tW - 57
-		if nameW < 15 {
-			nameW = 15
+		nameW = tW - 54
+		if nameW < 14 {
+			nameW = 14
 		}
 	} else {
-		nameW = tW - 87
-		if nameW < 20 {
-			nameW = 20
+		nameW = tW - 104
+		if nameW < 15 {
+			nameW = 15
 		}
 	}
 
 	var colHeader string
 	if compact {
 		colHeader = padR("SYMBOL", 7) + padR("NAME", nameW) + padR("PRICE", 9) +
-			padR("CHG%", 8) + padR("INDUSTRY", 12) + padR("MKT CAP", 9) +
-			padR("β", 5) + "SPARK"
+			padR("OPEN", 9) + padR("CHG%", 8) + padR("IND", 9) + padR("β", 5) + "SPARK"
 	} else {
-		colHeader = padR("SYMBOL", 7) + padR("NAME", nameW) + padR("INDUSTRY", 13) +
-			padR("PRICE", 9) + padR("CHG", 9) + padR("CHG%", 8) +
-			padR("VOLUME", 11) + padR("MKT CAP", 10) + padR("P/E", 6) + padR("β", 5) + "SPARK"
+		colHeader = padR("SYMBOL", 7) + padR("NAME", nameW) + padR("IND", 9) +
+			padR("PRICE", 9) + padR("OPEN", 9) + padR("HIGH", 9) + padR("LOW", 9) +
+			padR("CHG", 9) + padR("CHG%", 8) + padR("VOLUME", 11) +
+			padR("MKT CAP", 10) + padR("β", 5) + "SPARK"
 	}
 
 	// ── rows ─────────────────────────────────────────────────────────────
@@ -690,25 +689,32 @@ func (m Model) viewMarket() string {
 
 		if compact {
 			spark := sparklineChars(s.History, 6)
+			openStr := padR(fmt.Sprintf("$%.2f", s.Open), 9)
 			var b strings.Builder
 			if i == m.cursor {
 				b.WriteString(padR(s.Symbol, 7))
 				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(openStr)
 				b.WriteString(pctStr)
-				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
-				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 9))
+				b.WriteString(padR(shortIndustry(s.Industry), 9))
 				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
 				b.WriteString(spark)
 				b.WriteString(infChar)
 				rows.WriteString(styleSelected.Render(b.String()) + "\n")
 			} else {
+				openColored := openStr
+				if s.Price > s.Open {
+					openColored = stylePositive.Render(openStr)
+				} else if s.Price < s.Open {
+					openColored = styleNegative.Render(openStr)
+				}
 				b.WriteString(padR(s.Symbol, 7))
 				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(openColored)
 				b.WriteString(cs.Render(pctStr))
-				b.WriteString(padR(truncate(string(s.Industry), 11), 12))
-				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 9))
+				b.WriteString(padR(shortIndustry(s.Industry), 9))
 				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
 				b.WriteString(sparkline(s.History, 6))
 				b.WriteString(infStyled)
@@ -717,31 +723,44 @@ func (m Model) viewMarket() string {
 		} else {
 			chgStr := padR(fmt.Sprintf("%s%.2f", signStr(chg), chg), 9)
 			spark := sparklineChars(s.History, 8)
+			openStr := padR(fmt.Sprintf("$%.2f", s.Open), 9)
+			highStr := padR(fmt.Sprintf("$%.2f", s.High), 9)
+			lowStr := padR(fmt.Sprintf("$%.2f", s.Low), 9)
 			var b strings.Builder
 			if i == m.cursor {
 				b.WriteString(padR(s.Symbol, 7))
 				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
-				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
+				b.WriteString(padR(shortIndustry(s.Industry), 9))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(openStr)
+				b.WriteString(highStr)
+				b.WriteString(lowStr)
 				b.WriteString(chgStr)
 				b.WriteString(pctStr)
 				b.WriteString(padR(commafInt(s.Volume), 11))
 				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 10))
-				b.WriteString(padR(fmt.Sprintf("%.1f", s.PERatio), 6))
 				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
 				b.WriteString(spark)
 				b.WriteString(infChar)
 				rows.WriteString(styleSelected.Render(b.String()) + "\n")
 			} else {
+				openColored := openStr
+				if s.Price > s.Open {
+					openColored = stylePositive.Render(openStr)
+				} else if s.Price < s.Open {
+					openColored = styleNegative.Render(openStr)
+				}
 				b.WriteString(padR(s.Symbol, 7))
 				b.WriteString(padR(truncate(s.Name, nameW-1), nameW))
-				b.WriteString(padR(truncate(string(s.Industry), 12), 13))
+				b.WriteString(padR(shortIndustry(s.Industry), 9))
 				b.WriteString(padR(fmt.Sprintf("$%.2f", s.Price), 9))
+				b.WriteString(openColored)
+				b.WriteString(stylePositive.Render(highStr))
+				b.WriteString(styleNegative.Render(lowStr))
 				b.WriteString(cs.Render(chgStr))
 				b.WriteString(cs.Render(pctStr))
 				b.WriteString(padR(commafInt(s.Volume), 11))
 				b.WriteString(padR(market.FormatMarketCap(s.MarketCap), 10))
-				b.WriteString(padR(fmt.Sprintf("%.1f", s.PERatio), 6))
 				b.WriteString(padR(fmt.Sprintf("%.2f", s.Beta), 5))
 				b.WriteString(sparkline(s.History, 8))
 				b.WriteString(infStyled)
@@ -1828,6 +1847,32 @@ func industryListStr(industries []market.Industry) string {
 		parts[i] = string(ind)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func shortIndustry(ind market.Industry) string {
+	switch ind {
+	case market.IndustryTech:
+		return "Tech"
+	case market.IndustryFinance:
+		return "Finance"
+	case market.IndustryEnergy:
+		return "Energy"
+	case market.IndustryHealthcare:
+		return "Health"
+	case market.IndustryConsumer:
+		return "Consumer"
+	case market.IndustryIndustrial:
+		return "Indust"
+	case market.IndustryCrypto:
+		return "Crypto"
+	case market.IndustryReal:
+		return "R.Estate"
+	case market.IndustryMaterials:
+		return "Matls"
+	case market.IndustryUtilities:
+		return "Utils"
+	}
+	return string(ind)
 }
 
 func styleWhiteStr(s string) string {
