@@ -15,6 +15,8 @@ A terminal-based stock trading simulator built in Go. Watch live markets tick, r
 
 ## Overview
 
+![tradez demo](recording.gif)
+
 tradez simulates a live stock market with ~50 procedurally generated companies across 10 industries. Prices update every 2 seconds. Random world events fire every 1–5 minutes, creating real lasting effects that push different industries in opposite directions. Your job is to read the market, interpret the news, and trade your way to profit.
 
 There is no win condition. Your score is your portfolio value vs. your starting capital.
