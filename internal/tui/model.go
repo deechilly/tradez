@@ -943,8 +943,11 @@ func (m Model) viewStock() string {
 	priceBar := lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ", s.Price)) +
 		cs.Render(fmt.Sprintf("%s%.2f  (%s%.2f%%)", signStr(chg), chg, signStr(pct), pct))
 
-	tabs := ""
 	tabNames := []string{"Chart", "Details"}
+	if m.g.Difficulty == game.DifficultyEasy {
+		tabNames = append(tabNames, "Analysis")
+	}
+	tabs := ""
 	for i, t := range tabNames {
 		if i == m.tab {
 			tabs += styleTabActive.Render(t)
@@ -959,6 +962,10 @@ func (m Model) viewStock() string {
 		content = m.renderChart(s, w-4)
 	case 1:
 		content = m.renderDetails(s)
+	case 2:
+		if m.g.Difficulty == game.DifficultyEasy {
+			content = m.renderAnalysis(s)
+		}
 	}
 
 	posSummary := ""
@@ -1073,6 +1080,334 @@ func (m Model) renderDetails(s *market.Stock) string {
 		sb.WriteString("  " + label + "  " + styleWhiteStr(f[1]) + "\n")
 	}
 	return sb.String()
+}
+
+func (m Model) renderAnalysis(s *market.Stock) string {
+	w := m.width - 4
+	if w < 60 {
+		w = 60
+	}
+
+	div := styleNeutral.Render(strings.Repeat("─", w))
+
+	// ── Fundamental score ────────────────────────────────────────
+	fundScore := 0.0
+
+	pe := s.PERatio
+	avgPE := industryAvgPE(s.Industry)
+	peScore := 0.0
+	peLabel := "fair value"
+	switch {
+	case pe <= 0:
+		peScore, peLabel = -0.3, "no earnings"
+	case pe < avgPE*0.65:
+		peScore, peLabel = 0.7, "undervalued"
+	case pe < avgPE*0.9:
+		peScore, peLabel = 0.35, "cheap"
+	case pe < avgPE*1.15:
+		peScore, peLabel = 0.05, "fair value"
+	case pe < avgPE*1.5:
+		peScore, peLabel = -0.3, "rich"
+	default:
+		peScore, peLabel = -0.6, "expensive"
+	}
+	fundScore += peScore * 0.40
+
+	epsScore := 0.0
+	epsLabel := "break-even"
+	if s.EPS > 0 {
+		epsScore, epsLabel = 0.3, "profitable"
+	} else if s.EPS < 0 {
+		epsScore, epsLabel = -0.5, "loss-making"
+	}
+	fundScore += epsScore * 0.25
+
+	ytdScore := 0.0
+	ytdLabel := "moderate"
+	switch {
+	case s.YTDGrowth < -40:
+		ytdScore, ytdLabel = 0.5, "deeply oversold"
+	case s.YTDGrowth < -20:
+		ytdScore, ytdLabel = 0.25, "oversold"
+	case s.YTDGrowth > 60:
+		ytdScore, ytdLabel = -0.4, "overbought"
+	case s.YTDGrowth > 30:
+		ytdScore, ytdLabel = -0.15, "extended"
+	}
+	fundScore += ytdScore * 0.20
+
+	divScore := math.Min(s.DivYield/6.0, 0.5)
+	divLabel := "none"
+	if s.DivYield > 0 {
+		divLabel = fmt.Sprintf("%.2f%% yield", s.DivYield)
+	}
+	fundScore += divScore * 0.15
+
+	if fundScore > 1.0 {
+		fundScore = 1.0
+	} else if fundScore < -1.0 {
+		fundScore = -1.0
+	}
+
+	// ── Technical score ───────────────────────────────────────────
+	hist := s.History
+	sma20 := calcSMA(hist, 20)
+	sma50 := calcSMA(hist, 50)
+	momentum := calcMomentum(hist, 15)
+
+	techScore := 0.0
+	ma20Label := "no data"
+	if sma20 > 0 {
+		if s.Price > sma20 {
+			techScore += 0.30
+			ma20Label = "▲ above"
+		} else {
+			techScore -= 0.30
+			ma20Label = "▼ below"
+		}
+	}
+	ma50Label := "no data"
+	if sma50 > 0 {
+		if s.Price > sma50 {
+			techScore += 0.25
+			ma50Label = "▲ above"
+		} else {
+			techScore -= 0.25
+			ma50Label = "▼ below"
+		}
+	}
+	techScore += momentum * 0.45
+	momLabel := "neutral"
+	switch {
+	case momentum > 0.5:
+		momLabel = "strong uptrend"
+	case momentum > 0.2:
+		momLabel = "uptrend"
+	case momentum < -0.5:
+		momLabel = "strong downtrend"
+	case momentum < -0.2:
+		momLabel = "downtrend"
+	}
+	if techScore > 1.0 {
+		techScore = 1.0
+	} else if techScore < -1.0 {
+		techScore = -1.0
+	}
+
+	// ── News score ────────────────────────────────────────────────
+	netInf := m.g.Market.StockInfluenceStrength(s.Symbol)
+	newsScore := math.Max(-1.0, math.Min(1.0, netInf*4))
+
+	posEvents, negEvents := 0, 0
+	for _, n := range m.g.Market.RecentNews(30) {
+		if !n.IsActive() {
+			continue
+		}
+		if sent, ok := n.SentimentFor(s); ok {
+			if sent > 0 {
+				posEvents++
+			} else {
+				negEvents++
+			}
+		}
+	}
+	newsLabel := "neutral"
+	switch {
+	case netInf > 0.2:
+		newsLabel = "strong tailwind"
+	case netInf > 0.05:
+		newsLabel = "tailwind"
+	case netInf < -0.2:
+		newsLabel = "strong headwind"
+	case netInf < -0.05:
+		newsLabel = "headwind"
+	}
+
+	// ── Composite ─────────────────────────────────────────────────
+	composite := fundScore*0.30 + techScore*0.35 + newsScore*0.35
+	if composite > 1.0 {
+		composite = 1.0
+	} else if composite < -1.0 {
+		composite = -1.0
+	}
+
+	recLabel := "◆ HOLD"
+	recStyle := styleNeutral
+	switch {
+	case composite > 0.45:
+		recLabel, recStyle = "▲▲ STRONG BUY", stylePositive
+	case composite > 0.15:
+		recLabel, recStyle = "▲  BUY", stylePositive
+	case composite < -0.45:
+		recLabel, recStyle = "▼▼ STRONG SELL", styleNegative
+	case composite < -0.15:
+		recLabel, recStyle = "▼  SELL", styleNegative
+	}
+
+	confidence := int(math.Abs(composite) * 100)
+
+	// Price targets (use volatility + beta for stop distance)
+	stopPct := math.Max(0.03, s.Volatility*math.Max(s.Beta, 0.5)*0.5)
+	targetPct := math.Max(0.02, math.Abs(composite)*0.15)
+	var stopPrice, targetPrice float64
+	var targetDir string
+	if composite >= 0 {
+		stopPrice = s.Price * (1 - stopPct)
+		targetPrice = s.Price * (1 + targetPct)
+		targetDir = "upside"
+	} else {
+		stopPrice = s.Price * (1 + stopPct)
+		targetPrice = s.Price * (1 - targetPct)
+		targetDir = "downside"
+	}
+
+	// ── Render ────────────────────────────────────────────────────
+	bar8 := func(score float64) string {
+		n := int(math.Abs(score) * 8)
+		if n > 8 {
+			n = 8
+		}
+		return colorForChange(score).Render(strings.Repeat("█", n) + strings.Repeat("░", 8-n))
+	}
+	scoreTag := func(score float64) string {
+		return colorForChange(score).Render(market.SentimentLabel(score) + fmt.Sprintf(" %+.2f", score))
+	}
+
+	var b strings.Builder
+
+	b.WriteString(styleHint.Render("  Easy Mode — Analyst Assist") + "\n")
+	b.WriteString(div + "\n\n")
+
+	b.WriteString(styleHeader.Render("  FUNDAMENTALS") + "  " + scoreTag(fundScore) + "\n")
+	b.WriteString(div + "\n")
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n", "P/E Ratio",
+		bar8(peScore), styleNeutral.Render(fmt.Sprintf("%.1f  (sector avg ~%.0f)  %s", pe, avgPE, peLabel))))
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n", "EPS",
+		bar8(epsScore), styleNeutral.Render(fmt.Sprintf("$%.2f  %s", s.EPS, epsLabel))))
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n", "YTD Growth",
+		bar8(ytdScore), styleNeutral.Render(fmt.Sprintf("%+.1f%%  %s", s.YTDGrowth, ytdLabel))))
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n", "Dividend",
+		bar8(divScore), styleNeutral.Render(divLabel)))
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n\n", "Beta",
+		bar8(-math.Min(s.Beta/2.5, 1.0)), styleNeutral.Render(fmt.Sprintf("%.2f  %s", s.Beta, betaRiskLabel(s.Beta)))))
+
+	b.WriteString(styleHeader.Render("  TECHNICALS") + "  " + scoreTag(techScore) + "\n")
+	b.WriteString(div + "\n")
+	if sma20 > 0 {
+		b.WriteString(fmt.Sprintf("  20-period MA   $%-10.2f  %s\n", sma20, styleNeutral.Render(ma20Label)))
+	}
+	if sma50 > 0 {
+		b.WriteString(fmt.Sprintf("  50-period MA   $%-10.2f  %s\n", sma50, styleNeutral.Render(ma50Label)))
+	}
+	b.WriteString(fmt.Sprintf("  %-14s  %s  %s\n\n", "Momentum",
+		bar8(momentum), styleNeutral.Render(momLabel)))
+
+	b.WriteString(styleHeader.Render("  MARKET SIGNALS") + "  " + scoreTag(newsScore) + "\n")
+	b.WriteString(div + "\n")
+	b.WriteString(fmt.Sprintf("  Active bullish:  %s\n", stylePositive.Render(fmt.Sprintf("%d event(s)", posEvents))))
+	b.WriteString(fmt.Sprintf("  Active bearish:  %s\n", styleNegative.Render(fmt.Sprintf("%d event(s)", negEvents))))
+	b.WriteString(fmt.Sprintf("  Net influence:   %s  %s\n\n",
+		colorForChange(netInf).Render(fmt.Sprintf("%+.3f", netInf)),
+		styleNeutral.Render(newsLabel)))
+
+	border := styleNeutral.Render(strings.Repeat("═", w))
+	b.WriteString(border + "\n")
+	b.WriteString(fmt.Sprintf("  RECOMMENDATION:   %s    %s\n\n",
+		recStyle.Bold(true).Render(recLabel),
+		styleNeutral.Render(fmt.Sprintf("confidence: %d%%", confidence))))
+	if composite >= 0 {
+		b.WriteString(fmt.Sprintf("  Entry:   $%.2f    Stop-loss: $%.2f  (%+.1f%%)\n",
+			s.Price, stopPrice, (stopPrice/s.Price-1)*100))
+	} else {
+		b.WriteString(fmt.Sprintf("  Short:   $%.2f    Stop-loss: $%.2f  (%+.1f%%)\n",
+			s.Price, stopPrice, (stopPrice/s.Price-1)*100))
+	}
+	b.WriteString(fmt.Sprintf("  Target:  $%.2f    %s: %+.1f%%\n",
+		targetPrice, targetDir, (targetPrice/s.Price-1)*100))
+	b.WriteString(border + "\n")
+
+	return b.String()
+}
+
+func industryAvgPE(ind market.Industry) float64 {
+	switch ind {
+	case market.IndustryTech:
+		return 35
+	case market.IndustryFinance:
+		return 14
+	case market.IndustryEnergy:
+		return 12
+	case market.IndustryHealthcare:
+		return 28
+	case market.IndustryConsumer:
+		return 22
+	case market.IndustryIndustrial:
+		return 18
+	case market.IndustryCrypto:
+		return 45
+	case market.IndustryReal:
+		return 20
+	case market.IndustryMaterials:
+		return 15
+	case market.IndustryUtilities:
+		return 17
+	default:
+		return 20
+	}
+}
+
+func calcSMA(hist []market.PricePoint, n int) float64 {
+	if len(hist) == 0 {
+		return 0
+	}
+	if len(hist) < n {
+		n = len(hist)
+	}
+	recent := hist[len(hist)-n:]
+	sum := 0.0
+	for _, p := range recent {
+		sum += p.Price
+	}
+	return sum / float64(n)
+}
+
+// calcMomentum returns a normalised slope of the last n price points in [-1, 1].
+// ±10% total move over n periods maps to ±1.0.
+func calcMomentum(hist []market.PricePoint, n int) float64 {
+	if len(hist) < 2 {
+		return 0
+	}
+	if len(hist) < n {
+		n = len(hist)
+	}
+	recent := hist[len(hist)-n:]
+	first := recent[0].Price
+	last := recent[len(recent)-1].Price
+	if first == 0 {
+		return 0
+	}
+	normalized := (last - first) / first / 0.10
+	if normalized > 1.0 {
+		return 1.0
+	} else if normalized < -1.0 {
+		return -1.0
+	}
+	return normalized
+}
+
+func betaRiskLabel(beta float64) string {
+	switch {
+	case beta > 2.0:
+		return "very high risk"
+	case beta > 1.5:
+		return "high risk"
+	case beta > 1.0:
+		return "above avg risk"
+	case beta > 0.7:
+		return "moderate risk"
+	default:
+		return "low risk"
+	}
 }
 
 func (m Model) viewPortfolio() string {
