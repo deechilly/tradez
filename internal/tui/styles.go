@@ -53,6 +53,11 @@ var (
 			BorderForeground(colorAccent).
 			Padding(0, 1)
 
+	styleInputBlur = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorBorder).
+			Padding(0, 1)
+
 	styleError = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
 	styleOk    = lipgloss.NewStyle().Foreground(colorGreen).Bold(true)
 )

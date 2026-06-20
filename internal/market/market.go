@@ -56,7 +56,7 @@ func (m *Market) Tick() (newEvent *NewsEvent) {
 		// Immediate price spike for affected stocks
 		for _, s := range m.Stocks {
 			if influence.Targets(s) {
-				spike := influence.Sentiment * influence.Magnitude * s.Volatility * s.Price * 8
+				spike := influence.InfluenceStrengthFor(s) * s.Volatility * s.Price * 8
 				s.Price += spike
 				if s.Price < 0.01 {
 					s.Price = 0.01
@@ -90,9 +90,8 @@ func (m *Market) tickStock(s *Stock, now time.Time) {
 	// Sum active influences targeting this stock
 	influenceDrift := 0.0
 	for _, inf := range m.Influences {
-		if inf.Targets(s) {
-			strength := inf.InfluenceStrength()
-			// influence adds a directional drift proportional to volatility
+		strength := inf.InfluenceStrengthFor(s)
+		if strength != 0 {
 			influenceDrift += strength * s.Volatility * s.Price * 3
 		}
 	}
@@ -182,9 +181,7 @@ func (m *Market) StockInfluenceStrength(symbol string) float64 {
 	}
 	total := 0.0
 	for _, inf := range m.Influences {
-		if inf.Targets(s) {
-			total += inf.InfluenceStrength()
-		}
+		total += inf.InfluenceStrengthFor(s)
 	}
 	return total
 }

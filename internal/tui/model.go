@@ -740,27 +740,45 @@ func (m Model) renderNewsPanel(height int) string {
 				timeStr = fmt.Sprintf("%ds", int(remaining.Seconds()))
 			}
 
-			arrow := stylePositive.Render("▲")
-			if inf.Sentiment < 0 {
-				arrow = styleNegative.Render("▼")
-			}
-			strength := math.Abs(inf.InfluenceStrength())
-			bars := int(strength * 5)
-			if bars > 5 {
-				bars = 5
-			}
-			barStr := strings.Repeat("█", bars) + strings.Repeat("░", 5-bars)
-
-			targets := industryListStr(inf.AffectedIndustries)
-			if len(inf.AffectedSymbols) > 0 {
-				targets = strings.Join(inf.AffectedSymbols, ",")
+			total := inf.ExpiresAt.Sub(inf.CreatedAt).Seconds()
+			decay := 0.0
+			if total > 0 {
+				rem := remaining.Seconds()
+				if rem > 0 {
+					decay = rem / total
+				}
 			}
 
-			line := arrow + " " +
-				lipgloss.NewStyle().Foreground(colorGray).Render(padR(truncate(targets, 14), 15)) +
-				colorForChange(inf.Sentiment).Render(barStr) +
-				styleNeutral.Render(" "+timeStr)
-			infLines.WriteString(truncateLine(line, inner) + "\n")
+			for i, eff := range inf.Effects {
+				strength := math.Abs(eff.Sentiment * inf.Magnitude * decay)
+				bars := int(strength * 5)
+				if bars > 5 {
+					bars = 5
+				}
+				if bars == 0 && strength > 0.01 {
+					bars = 1
+				}
+				barStr := strings.Repeat("█", bars) + strings.Repeat("░", 5-bars)
+
+				arrow := stylePositive.Render("▲")
+				if eff.Sentiment < 0 {
+					arrow = styleNegative.Render("▼")
+				}
+
+				targets := industryListStr(eff.Industries)
+				if len(eff.Symbols) > 0 {
+					targets = strings.Join(eff.Symbols, ",")
+				}
+
+				t := ""
+				if i == 0 {
+					t = styleNeutral.Render(" " + timeStr)
+				}
+				line := arrow + " " +
+					lipgloss.NewStyle().Foreground(colorGray).Render(padR(truncate(targets, 14), 15)) +
+					colorForChange(eff.Sentiment).Render(barStr) + t
+				infLines.WriteString(truncateLine(line, inner) + "\n")
+			}
 		}
 	}
 
@@ -959,29 +977,18 @@ func (m Model) viewStock() string {
 	// show relevant active news for this stock
 	newsForStock := ""
 	for _, n := range m.g.Market.RecentNews(20) {
-		for _, sym := range n.AffectedSymbols {
-			if sym == s.Symbol && n.IsActive() {
-				sentStyle := colorForChange(n.Sentiment)
-				newsForStock += "\n" + styleNeutral.Render("  ") +
-					lipgloss.NewStyle().
-						Background(lipgloss.Color(market.CategoryColor(n.Category))).
-						Foreground(lipgloss.Color("#000000")).Bold(true).Padding(0, 1).
-						Render(string(n.Category)) +
-					"  " + sentStyle.Render(n.SentimentLabel()) +
-					"  " + styleWhiteStr(truncate(n.Headline, w-20))
-			}
+		if !n.IsActive() {
+			continue
 		}
-		for _, ind := range n.AffectedIndustries {
-			if ind == s.Industry && n.IsActive() && len(n.AffectedSymbols) == 0 {
-				sentStyle := colorForChange(n.Sentiment)
-				newsForStock += "\n" + styleNeutral.Render("  ") +
-					lipgloss.NewStyle().
-						Background(lipgloss.Color(market.CategoryColor(n.Category))).
-						Foreground(lipgloss.Color("#000000")).Bold(true).Padding(0, 1).
-						Render(string(n.Category)) +
-					"  " + sentStyle.Render(n.SentimentLabel()) +
-					"  " + styleWhiteStr(truncate(n.Headline, w-20))
-			}
+		if sent, ok := n.SentimentFor(s); ok {
+			sentStyle := colorForChange(sent)
+			badge := lipgloss.NewStyle().
+				Background(lipgloss.Color(market.CategoryColor(n.Category))).
+				Foreground(lipgloss.Color("#000000")).Bold(true).Padding(0, 1).
+				Render(string(n.Category))
+			newsForStock += "\n" + styleNeutral.Render("  ") + badge +
+				"  " + sentStyle.Render(market.SentimentLabel(sent)) +
+				"  " + styleWhiteStr(truncate(n.Headline, w-20))
 		}
 	}
 
@@ -1205,19 +1212,20 @@ func (m Model) viewTrade() string {
 
 	var inputSection string
 	if isLimit {
-		sharesLabel := styleNeutral.Render("Shares:   ")
-		priceLabel := styleNeutral.Render("Limit $:  ")
+		sharesBox := styleInputBlur.Render(m.inputShares.View())
+		priceBox := styleInputBlur.Render(m.inputPrice.View())
 		if m.inputFocus == 0 {
-			inputSection = sharesLabel + styleInput.Render(m.inputShares.View()) + "\n" +
-				priceLabel + styleNeutral.Render(m.inputPrice.View()) + "\n" +
-				styleHint.Render("  tab to switch fields")
+			sharesBox = styleInput.Render(m.inputShares.View())
 		} else {
-			inputSection = sharesLabel + styleNeutral.Render(m.inputShares.View()) + "\n" +
-				priceLabel + styleInput.Render(m.inputPrice.View()) + "\n" +
-				styleHint.Render("  tab to switch fields")
+			priceBox = styleInput.Render(m.inputPrice.View())
 		}
+		sharesRow := lipgloss.JoinHorizontal(lipgloss.Center, styleNeutral.Render("Shares:  "), sharesBox)
+		priceRow := lipgloss.JoinHorizontal(lipgloss.Center, styleNeutral.Render("Limit $: "), priceBox)
+		inputSection = sharesRow + "\n" + priceRow + "\n" + styleHint.Render("  tab to switch fields")
 	} else {
-		inputSection = styleNeutral.Render("Shares:   ") + styleInput.Render(m.inputShares.View())
+		inputSection = lipgloss.JoinHorizontal(lipgloss.Center,
+			styleNeutral.Render("Shares:  "),
+			styleInput.Render(m.inputShares.View()))
 	}
 
 	cashLine := styleNeutral.Render("Cash: ") + stylePositive.Render(fmt.Sprintf("$%s", commaf(m.g.Cash)))
@@ -1235,22 +1243,9 @@ func (m Model) viewTrade() string {
 		if !n.IsActive() {
 			continue
 		}
-		affected := false
-		for _, sym := range n.AffectedSymbols {
-			if sym == s.Symbol {
-				affected = true
-				break
-			}
-		}
-		for _, ind := range n.AffectedIndustries {
-			if ind == s.Industry {
-				affected = true
-				break
-			}
-		}
-		if affected {
-			sentStyle := colorForChange(n.Sentiment)
-			relevantNews += "\n" + sentStyle.Render(n.SentimentLabel()) + " " + styleNeutral.Render(truncate(n.Headline, 40))
+		if sent, ok := n.SentimentFor(s); ok {
+			sentStyle := colorForChange(sent)
+			relevantNews += "\n" + sentStyle.Render(market.SentimentLabel(sent)) + " " + styleNeutral.Render(truncate(n.Headline, 40))
 		}
 	}
 	if relevantNews != "" {
