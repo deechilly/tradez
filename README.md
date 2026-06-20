@@ -44,11 +44,11 @@ Requires Go 1.21+.
 
 At launch, choose a starting capital level. Difficulty also controls access to the analyst assist feature.
 
-| Mode   | Starting Capital | Extras                                                   |
-|--------|-----------------|----------------------------------------------------------|
-| Easy   | $1,000,000      | Analyst View tab on every stock detail screen            |
-| Medium | $50,000         | Standard — limited capital forces prioritisation         |
-| Hard   | $1,000          | One bad trade can end your run; timing is everything     |
+| Mode   | Starting Capital | Challenge                                              |
+|--------|-----------------|--------------------------------------------------------|
+| Easy   | $1,000,000      | Comfortable margin for error; diversify freely         |
+| Medium | $50,000         | Limited capital forces prioritisation                  |
+| Hard   | $1,000          | One bad trade can end your run; timing is everything   |
 
 ---
 
@@ -183,9 +183,9 @@ Closes a short position. You buy shares at the current price to return the borro
 
 ---
 
-## Analyst View (Easy Mode)
+## Analyst View
 
-On Easy difficulty, each stock detail screen has a third tab — **Analysis** — showing a data-driven buy/sell recommendation. Press `tab` twice from the chart to reach it.
+Each stock detail screen has a third tab — **Analysis** — showing a data-driven buy/sell recommendation. Press `tab` twice from the chart to reach it.
 
 The recommendation is built from three scored components:
 
