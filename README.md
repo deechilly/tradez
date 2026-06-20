@@ -154,17 +154,48 @@ The news panel can be toggled with `n` if terminal width is limited. Influence i
 
 ---
 
+## Achievements
+
+Press `a` from the Market screen to open the Achievements screen. Unlocks persist across sessions in `~/.tradez/achievements.json`.
+
+| Icon | Name | How to unlock |
+|------|------|---------------|
+| 💎 | Diamond Hands | Close a long position at a profit after it was 35%+ underwater at some point |
+| ⛈ | Weather the Storm | Hold a position through a negative news event targeting your sector for 60+ seconds without selling |
+| 📉 | Sell the Dip | Sell a stock 15%+ below your cost basis, then watch it climb 25%+ above your sell price |
+| 💀 | Bust!!! | Portfolio value falls below 5% of starting capital |
+| 💣 | BOOM | Close a single long position for 3× your cost basis (200%+ return on one trade) |
+| 🩳 | Squeezed | A short position racks up unrealized losses ≥75% of the margin you posted |
+| 🎲 | YOLO | Commit 85%+ of your total portfolio value to a single buy order |
+| 🧻 | Paper Hands | Sell a position at a loss, then watch the stock climb 20%+ above your sell price |
+| 🚀 | To The Moon | A long position you hold is up 100%+ from your average cost |
+| 🍗 | Tendies | Realize profit ≥5× starting capital from closing a single position |
+| 😱 | GUH | A single sell or cover realizes a loss ≥30% of your total portfolio value |
+| 🛍 | Bag Holder | Hold a position 40%+ in the red for 90 consecutive seconds |
+| 📸 | Loss Porn | Portfolio hits 70%+ below starting capital — and you're still playing |
+| 🌙 | WAGMI | Portfolio reaches 5× starting capital. We're all gonna make it |
+| 🦍 | Ape Strong | Hold 8+ simultaneous long positions across different stocks |
+| 🐒 | I Like the Stock | Hold a position untouched for 5+ minutes — long-term investing by WSB standards |
+| ☠ | Widow Maker | A single buy order consumes 95%+ of your available cash |
+| 📊 | Not Financial Advice | Make a trade that's the exact opposite of the Analyst's STRONG recommendation |
+| 🚌 | Short Bus | Profit from 3 separate short positions in one session |
+| 🖨 | Infinite Money Glitch | Profit on both a long AND a short position on the same ticker in one session |
+| 🏠 | Free Real Estate | A limit buy fills 10%+ below your limit price |
+
+---
+
 ## Trading
 
 ### Screens
 
-| Screen    | Key    | Description                                        |
-|-----------|--------|----------------------------------------------------|
-| Market    | (main) | Live table of all stocks with sparklines           |
-| Detail    | enter  | Price chart, company details, and analyst view     |
-| Portfolio | p      | Open positions and total P&L                       |
-| Orders    | o      | Pending and filled order history                   |
-| Trade     | b/s/…  | Order entry dialog                                 |
+| Screen       | Key    | Description                                        |
+|--------------|--------|----------------------------------------------------|
+| Market       | (main) | Live table of all stocks with sparklines           |
+| Detail       | enter  | Price chart, company details, and analyst view     |
+| Portfolio    | p      | Open positions and total P&L                       |
+| Orders       | o      | Pending and filled order history                   |
+| Trade        | b/s/…  | Order entry dialog                                 |
+| Achievements | a      | All 21 achievements and unlock status              |
 
 ### Order Types
 
@@ -245,6 +276,7 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `p`       | Open portfolio                                      |
 | `o`       | Open orders                                         |
 | `n`       | Toggle Market Feed panel                            |
+| `a`       | Open achievements screen                            |
 | `1`–`5`   | Sort by symbol / price / change% / volume / mkt cap |
 | `pgup`    | Scroll news feed up                                 |
 | `pgdn`    | Scroll news feed down                               |
@@ -279,6 +311,14 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `enter` | Confirm order                                      |
 | `esc`   | Cancel                                             |
 
+### Achievements Screen
+
+| Key              | Action        |
+|------------------|---------------|
+| `↑` / `k` / `pgup` | Scroll up  |
+| `↓` / `j` / `pgdn` | Scroll down |
+| `esc`            | Back          |
+
 ---
 
 ## Strategy Tips
@@ -307,10 +347,13 @@ tradez/
     │   └── news.go            54 news templates, InfluenceEffect per-group
     │                          sentiments, MarketInfluence decay model
     ├── game/
-    │   └── game.go            Game state, portfolio, all order type logic
+    │   ├── game.go            Game state, portfolio, all order type logic
+    │   └── achievements.go    21 achievement definitions, JSON persistence
     └── tui/
         ├── model.go           Bubbletea model, all views and key handlers,
         │                      analyst scoring (fundamentals/technicals/news)
+        ├── achievements.go    Achievement tracking, flash notifications,
+        │                      achievements screen
         └── styles.go          Lipgloss colour palette and style definitions
 ```
 

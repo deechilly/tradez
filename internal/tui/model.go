@@ -26,6 +26,7 @@ const (
 	screenPortfolio
 	screenOrders
 	screenTrade
+	screenAchievements
 )
 
 
@@ -82,10 +83,24 @@ type Model struct {
 	okMsg             string
 	msgTimer          int
 	stocks            []*market.Stock
-	flashNews         *market.NewsEvent // newly arrived event, flashes briefly
+	flashNews         *market.NewsEvent
 	flashTicks        int
 	newsScroll        int
-	newsVisible       bool // toggled with 'n'; auto-enabled when terminal is wide enough
+	newsVisible       bool
+
+	// Achievement state
+	achStore          *game.AchievementStore
+	posTrack          map[string]*positionTrack
+	sellLog           []sellEntry
+	stormWatch        map[string]time.Time // symbol → time negative news hit their sector
+	seenFilledOrders  map[int]bool
+	lastAnalysisScore float64
+	sessionShortWins  int
+	perSymbolWins     map[string][2]bool // [longWin, shortWin]
+	flashAchieveID    string
+	flashAchieveTick  int
+	achieveQueue      []string
+	achScroll         int
 }
 
 func NewModel(g *game.Game) Model {
@@ -100,13 +115,18 @@ func NewModel(g *game.Game) Model {
 	tp.Width = 12
 
 	m := Model{
-		g:           g,
-		screen:      screenMenu,
-		sortCol:     0,
-		sortAsc:     true,
-		inputShares: ti,
-		inputPrice:  tp,
-		newsVisible: true,
+		g:                g,
+		screen:           screenMenu,
+		sortCol:          0,
+		sortAsc:          true,
+		inputShares:      ti,
+		inputPrice:       tp,
+		newsVisible:      true,
+		achStore:         game.LoadAchievements(),
+		posTrack:         make(map[string]*positionTrack),
+		stormWatch:       make(map[string]time.Time),
+		seenFilledOrders: make(map[int]bool),
+		perSymbolWins:    make(map[string][2]bool),
 	}
 	m.refreshStocks()
 	return m
@@ -168,14 +188,17 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case time.Time:
-		// drive the market tick and schedule next one
+		prevPortfolioVal := m.g.PortfolioValue()
+
 		newEvent := m.g.Market.Tick()
 		m.g.ProcessLimitOrders()
+		m.checkNewLimitFills()
 		m.refreshStocks()
 
 		if newEvent != nil {
 			m.flashNews = newEvent
-			m.flashTicks = 6 // ~12 seconds of flash
+			m.flashTicks = 6
+			m.updateStormWatch(newEvent)
 		}
 		if m.flashTicks > 0 {
 			m.flashTicks--
@@ -183,6 +206,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.flashNews = nil
 			}
 		}
+
+		m.checkTickAchievements(prevPortfolioVal)
+		m.tickAchieveFlash()
 
 		if m.msgTimer > 0 {
 			m.msgTimer--
@@ -222,6 +248,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleOrdersKey(msg)
 	case screenTrade:
 		return m.handleTradeKey(msg)
+	case screenAchievements:
+		return m.handleAchievementsKey(msg)
 	}
 	return m, nil
 }
@@ -306,6 +334,9 @@ func (m Model) handleMarketKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sortAsc = true
 		}
 		m.sortStocks()
+	case "a":
+		m.screen = screenAchievements
+		m.achScroll = 0
 	case "n":
 		m.newsVisible = !m.newsVisible
 	case "pgup":
@@ -350,6 +381,9 @@ func (m *Model) openTrade(mode tradeMode) {
 	m.errMsg = ""
 	m.okMsg = ""
 	m.screen = screenTrade
+	if s := m.g.Market.GetStock(m.stockSymbol); s != nil {
+		m.lastAnalysisScore = m.analysisComposite(s)
+	}
 }
 
 func (m Model) handlePortfolioKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -433,6 +467,21 @@ func (m Model) handleTradeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.msgTimer = 5
 			return m, nil
 		}
+		// Record pre-trade state for achievement checks
+		s := m.g.Market.GetStock(m.stockSymbol)
+		prePV := m.g.PortfolioValue()
+		preCash := m.g.Cash
+		var preAvgCost, preShortAvg float64
+		var preShares, preShortShares int
+		if s != nil {
+			if pos := m.g.Positions[m.stockSymbol]; pos != nil {
+				preAvgCost = pos.AvgCost
+				preShortAvg = pos.ShortAvg
+				preShares = pos.Shares
+				preShortShares = pos.ShortShares
+			}
+		}
+
 		var tradeErr error
 		if isLimit {
 			priceStr := strings.TrimSpace(m.inputPrice.Value())
@@ -465,6 +514,10 @@ func (m Model) handleTradeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.okMsg = "Order placed!"
 			m.msgTimer = 3
+			if !isLimit && s != nil {
+				m.checkTradeAchievements(prePV, preCash, preAvgCost, preShortAvg,
+					preShares, preShortShares, shares, m.tradeMode, s)
+			}
 			m.screen = screenMarket
 		}
 		return m, nil
@@ -497,6 +550,8 @@ func (m Model) View() string {
 		return m.viewOrders()
 	case screenTrade:
 		return m.viewTrade()
+	case screenAchievements:
+		return m.viewAchievements()
 	}
 	return ""
 }
@@ -771,7 +826,17 @@ func (m Model) viewMarket() string {
 
 	// ── message / status line ─────────────────────────────────────────────
 	msgLine := ""
-	if m.errMsg != "" {
+	if m.flashAchieveID != "" {
+		def := game.AchievementByID(m.flashAchieveID)
+		if def != nil {
+			badge := lipgloss.NewStyle().
+				Background(lipgloss.Color("#f9ca24")).
+				Foreground(lipgloss.Color("#000000")).
+				Bold(true).Padding(0, 1).
+				Render("★ ACHIEVEMENT")
+			msgLine = " " + badge + "  " + styleWhiteStr(def.Icon+" "+def.Name)
+		}
+	} else if m.errMsg != "" {
 		msgLine = " " + styleError.Render("⚠ "+m.errMsg)
 	} else if m.okMsg != "" {
 		msgLine = " " + styleOk.Render("✓ "+m.okMsg)
@@ -779,7 +844,7 @@ func (m Model) viewMarket() string {
 		msgLine = " " + styleNeutral.Render(m.g.Messages[len(m.g.Messages)-1])
 	}
 
-	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  1-5=sort  n=news  q=quit")
+	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  a=achievements  1-5=sort  n=news  q=quit")
 
 	div := styleNeutral.Render(strings.Repeat("─", tW))
 
@@ -865,9 +930,26 @@ func (m Model) renderNewsPanel(height int) string {
 		}
 	}
 
-	// Flash banner for new news
+	// Flash banner: achievement unlock takes priority over breaking news
 	flashBanner := ""
-	if m.flashNews != nil {
+	if m.flashAchieveID != "" {
+		def := game.AchievementByID(m.flashAchieveID)
+		if def != nil {
+			badge := lipgloss.NewStyle().
+				Background(lipgloss.Color("#f9ca24")).
+				Foreground(lipgloss.Color("#000000")).
+				Bold(true).Padding(0, 1).
+				Render("★ ACHIEVEMENT")
+			flashBanner = badge + "\n"
+			flashBanner += lipgloss.NewStyle().Bold(true).Foreground(colorWhite).
+				Render(def.Icon+" "+def.Name) + "\n"
+			wrapped := wrapText(def.Desc, inner)
+			for _, line := range wrapped {
+				flashBanner += styleNeutral.Render(line) + "\n"
+			}
+			flashBanner += "\n"
+		}
+	} else if m.flashNews != nil {
 		catColor := lipgloss.Color(market.CategoryColor(m.flashNews.Category))
 		badge := lipgloss.NewStyle().
 			Background(catColor).
