@@ -238,11 +238,24 @@ Bets that a stock will fall. You borrow and immediately sell shares you don't ow
 #### Cover Short — `c`
 Closes a short position. You buy shares at the current price to return the borrowed stock. Your margin collateral is returned plus or minus the P&L.
 
+#### Buy Put — `p` (from stock detail screen)
+Buys European-style put option contracts on the selected stock. A put gives you the right — but not the obligation — to profit if the stock falls below the strike price before the option expires.
+
+The put dialog lets you choose:
+- **Strike price** — five levels from deep in-the-money (+20%) to deep out-of-the-money (−20%). The premium, break-even price, and moneyness label are shown for each.
+- **Expiry** — Short (~1 min / 30 ticks), Medium (~3 min / 90 ticks), or Long (~5 min / 150 ticks).
+- **Contracts** — each contract covers 100 shares. You pay the full premium upfront.
+
+Premiums are calculated using Black-Scholes, with the stock's volatility scaled to an annualised implied volatility and game ticks treated as the time dimension. OTM puts on volatile stocks feel like lottery tickets; ITM puts provide more certain intrinsic value but cost substantially more.
+
+Options are **European-style**: you cannot exercise early. To close a position before expiry, navigate to your put in the Portfolio screen and press `x` to sell at the current mark-to-market value. At expiry, ITM contracts auto-settle for intrinsic value; OTM contracts expire worthless.
+
 ### Risk
 
 - **Shorts can theoretically lose more than you invested** — there is no ceiling on how high a price can go
 - **Limit buy orders reserve cash** — placing many large limit orders can leave you unable to trade spot
 - **Margin calls are not enforced** in this version; a short gone badly wrong can push your cash negative
+- **Put premiums are non-refundable** — an OTM put that expires worthless is a total loss of the premium paid; time decay accelerates as expiry approaches
 
 ---
 
@@ -316,6 +329,7 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `x`     | Limit sell                                                        |
 | `h`     | Short sell                                                        |
 | `c`     | Cover short                                                       |
+| `p`     | Buy put option                                                    |
 | `esc`   | Back to market table                                              |
 
 ### Orders Screen
@@ -369,9 +383,11 @@ tradez/
     │   ├── market.go          Price engine, news scheduling, tick loop
     │   ├── news.go            54 news templates, InfluenceEffect per-group
     │   │                      sentiments, MarketInfluence decay model
+    │   ├── options.go         Black-Scholes put pricing, ImpliedVol helper
     │   └── save.go            MarketState snapshot for save/load
     ├── game/
     │   ├── game.go            Game state, portfolio, all order type logic
+    │   ├── options.go         PutContract model, BuyPut/SellPut/ProcessPuts, strike helpers
     │   ├── save.go            Save/load logic, slot metadata, JSON serialisation
     │   └── achievements.go    21 achievement definitions, JSON persistence
     └── tui/

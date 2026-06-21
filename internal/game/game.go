@@ -96,14 +96,16 @@ func (p *Position) LongPnL(price float64) float64 {
 }
 
 type Game struct {
-	Market      *market.Market
-	Cash        float64
+	Market       *market.Market
+	Cash         float64
 	StartingCash float64
-	Positions   map[string]*Position
-	Orders      []*Order
-	nextOrderID int
-	Difficulty  Difficulty
-	Messages    []string
+	Positions    map[string]*Position
+	Orders       []*Order
+	nextOrderID  int
+	Puts         []*PutContract
+	nextPutID    int
+	Difficulty   Difficulty
+	Messages     []string
 }
 
 func New(m *market.Market) *Game {
@@ -324,6 +326,14 @@ func (g *Game) PortfolioValue() float64 {
 		}
 		total += pos.MarketValue(s.Price)
 		total += pos.ShortPnL(s.Price) + float64(pos.ShortShares)*pos.ShortAvg*0.5
+	}
+	for _, put := range g.Puts {
+		s := g.Market.GetStock(put.Symbol)
+		if s == nil {
+			continue
+		}
+		iv := market.ImpliedVol(s.Volatility)
+		total += put.CurrentValue(s.Price, iv)
 	}
 	return total
 }

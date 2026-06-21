@@ -40,6 +40,7 @@ const (
 	tradeLimitSell
 	tradeShort
 	tradeCover
+	tradePut
 )
 
 func (t tradeMode) label() string {
@@ -56,6 +57,8 @@ func (t tradeMode) label() string {
 		return "SHORT Sell"
 	case tradeCover:
 		return "Cover SHORT"
+	case tradePut:
+		return "Buy PUT"
 	}
 	return ""
 }
@@ -83,6 +86,8 @@ type Model struct {
 	inputShares       textinput.Model
 	inputPrice        textinput.Model
 	inputFocus        int
+	putStrikeCursor   int // 0–4: deep ITM → deep OTM
+	putExpiryCursor   int // 0–2: Short / Medium / Long
 	errMsg            string
 	okMsg             string
 	msgTimer          int
@@ -205,6 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			newEvent := m.g.Market.Tick()
 			m.g.ProcessLimitOrders()
+			m.g.ProcessPuts()
 			m.checkNewLimitFills()
 			m.refreshStocks()
 
@@ -395,6 +401,8 @@ func (m Model) handleStockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openTrade(tradeShort)
 	case "c":
 		m.openTrade(tradeCover)
+	case "p":
+		m.openTrade(tradePut)
 	case "tab":
 		m.tab = (m.tab + 1) % 3
 	}
@@ -410,12 +418,18 @@ func (m *Model) openTrade(mode tradeMode) {
 	m.errMsg = ""
 	m.okMsg = ""
 	m.screen = screenTrade
+	if mode == tradePut {
+		m.putStrikeCursor = 2 // default ATM
+		m.putExpiryCursor = 1 // default Medium
+	}
 	if s := m.g.Market.GetStock(m.stockSymbol); s != nil {
 		m.lastAnalysisScore = m.analysisComposite(s)
 	}
 }
 
 func (m Model) handlePortfolioKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	syms := m.portfolioSymbols()
+	totalRows := len(syms) + len(m.g.Puts)
 	switch msg.String() {
 	case "q", "esc":
 		m.screen = screenMarket
@@ -424,14 +438,27 @@ func (m Model) handlePortfolioKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "down", "j":
-		if m.cursor < len(m.g.Positions)-1 {
+		if m.cursor < totalRows-1 {
 			m.cursor++
 		}
 	case "enter":
-		syms := m.portfolioSymbols()
 		if m.cursor < len(syms) {
 			m.stockSymbol = syms[m.cursor]
 			m.screen = screenStock
+		}
+	case "x":
+		putIdx := m.cursor - len(syms)
+		if putIdx >= 0 && putIdx < len(m.g.Puts) {
+			put := m.g.Puts[putIdx]
+			if err := m.g.SellPut(put.ID, put.Contracts); err != nil {
+				m.errMsg = err.Error()
+			} else {
+				m.okMsg = "Put sold!"
+			}
+			m.msgTimer = 3
+			if m.cursor >= totalRows-1 && m.cursor > 0 {
+				m.cursor--
+			}
 		}
 	}
 	return m, nil
@@ -468,8 +495,64 @@ func (m Model) handleOrdersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+var putExpiries = []game.PutExpiry{game.PutExpiryShort, game.PutExpiryMedium, game.PutExpiryLong}
+
 func (m Model) handleTradeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	isLimit := m.tradeMode == tradeLimitBuy || m.tradeMode == tradeLimitSell
+
+	// Put buy dialog has its own navigation
+	if m.tradeMode == tradePut {
+		switch msg.String() {
+		case "esc":
+			m.screen = screenMarket
+		case "up", "k":
+			if m.putStrikeCursor > 0 {
+				m.putStrikeCursor--
+			}
+		case "down", "j":
+			if m.putStrikeCursor < 4 {
+				m.putStrikeCursor++
+			}
+		case "left", "h":
+			if m.putExpiryCursor > 0 {
+				m.putExpiryCursor--
+			}
+		case "right", "l":
+			if m.putExpiryCursor < 2 {
+				m.putExpiryCursor++
+			}
+		case "enter":
+			s := m.g.Market.GetStock(m.stockSymbol)
+			if s == nil {
+				m.errMsg = "Stock not found"
+				m.msgTimer = 5
+				return m, nil
+			}
+			contractsStr := strings.TrimSpace(m.inputShares.Value())
+			contracts, err := strconv.Atoi(contractsStr)
+			if err != nil || contracts <= 0 {
+				m.errMsg = "Enter a positive contract count"
+				m.msgTimer = 5
+				return m, nil
+			}
+			strikes := game.PutStrikes(s.Price)
+			strike := strikes[m.putStrikeCursor]
+			expiry := putExpiries[m.putExpiryCursor]
+			if err := m.g.BuyPut(m.stockSymbol, strike, expiry, contracts); err != nil {
+				m.errMsg = err.Error()
+				m.msgTimer = 5
+			} else {
+				m.okMsg = "Put purchased!"
+				m.msgTimer = 3
+				m.screen = screenMarket
+			}
+		default:
+			var cmd tea.Cmd
+			m.inputShares, cmd = m.inputShares.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
 
 	switch msg.String() {
 	case "esc":
@@ -1773,12 +1856,63 @@ func (m Model) viewPortfolio() string {
 		rows.WriteString(styleNeutral.Render("  No open positions.") + "\n")
 	}
 
+	// ── puts section ──────────────────────────────────────────────────────
+	var putsSection strings.Builder
+	if len(m.g.Puts) > 0 {
+		putColHeader := padR("#", 5) + padR("SYMBOL", 8) + padR("STRIKE", 10) +
+			padR("CONTR", 7) + padR("EXPIRES", 11) + padR("CURR VALUE", 12) +
+			padR("COST", 12) + "P&L"
+		putsSection.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(colorGray).Render(" PUTS") + "\n")
+		putsSection.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorGray).Render(" "+putColHeader) + "\n")
+		for pi, put := range m.g.Puts {
+			s := m.g.Market.GetStock(put.Symbol)
+			currVal := 0.0
+			if s != nil {
+				iv := market.ImpliedVol(s.Volatility)
+				currVal = put.CurrentValue(s.Price, iv)
+			}
+			pnl := currVal - put.Premium
+			tl := put.TicksLeft()
+			var expiresStr string
+			switch {
+			case tl <= 0:
+				expiresStr = "expired"
+			case tl < 30:
+				expiresStr = fmt.Sprintf("%ds", tl*2)
+			default:
+				expiresStr = fmt.Sprintf("%dm%ds", (tl*2)/60, (tl*2)%60)
+			}
+			row := padR(fmt.Sprintf("#%d", put.ID), 5) +
+				padR(put.Symbol, 8) +
+				padR(fmt.Sprintf("$%.2f", put.Strike), 10) +
+				padR(fmt.Sprintf("%d", put.Contracts), 7) +
+				padR(expiresStr, 11) +
+				padR(fmt.Sprintf("$%.2f", currVal), 12) +
+				padR(fmt.Sprintf("$%.2f", put.Premium), 12) +
+				colorForChange(pnl).Render(fmt.Sprintf("%s$%.2f", signStr(pnl), math.Abs(pnl)))
+
+			rowIdx := len(syms) + pi
+			if rowIdx == m.cursor {
+				putsSection.WriteString(styleSelected.Render(row) + "\n")
+			} else {
+				putsSection.WriteString(lipgloss.NewStyle().Foreground(colorWhite).Render(row) + "\n")
+			}
+		}
+	}
+
 	div := styleNeutral.Render(strings.Repeat("─", w))
-	keys := styleHint.Render(" ↑↓ navigate  enter=stock detail  esc=back")
+	keys := styleHint.Render(" ↑↓ navigate  enter=stock detail  x=sell put  esc=back")
+
+	statusLine := ""
+	if m.okMsg != "" {
+		statusLine = "\n" + styleOk.Render("✓ "+m.okMsg)
+	} else if m.errMsg != "" {
+		statusLine = "\n" + styleError.Render("⚠ "+m.errMsg)
+	}
 
 	return header + "\n" + div + "\n" +
 		lipgloss.NewStyle().Bold(true).Foreground(colorGray).Render(" "+colHeader) + "\n" +
-		div + "\n" + rows.String() + div + "\n" + keys
+		div + "\n" + rows.String() + putsSection.String() + div + statusLine + "\n" + keys
 }
 
 func (m Model) viewOrders() string {
@@ -1846,6 +1980,10 @@ func (m Model) viewTrade() string {
 		return "Stock not found"
 	}
 
+	if m.tradeMode == tradePut {
+		return m.viewTradePut(s)
+	}
+
 	isLimit := m.tradeMode == tradeLimitBuy || m.tradeMode == tradeLimitSell
 	pct := s.ChangePct()
 	cs := colorForChange(pct)
@@ -1909,6 +2047,90 @@ func (m Model) viewTrade() string {
 	inner := title + "\n" + priceInfo + "\n\n" +
 		cashLine + posLine + relevantNews + "\n\n" +
 		inputSection + feedback + "\n\n" +
+		keys
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		styleBorder.Padding(1, 3).Render(inner))
+}
+
+var putMoneynessLabels = [5]string{"Deep ITM +20%", "ITM +10%", "ATM", "OTM -10%", "Deep OTM -20%"}
+
+func (m Model) viewTradePut(s *market.Stock) string {
+	pct := s.ChangePct()
+	cs := colorForChange(pct)
+	title := styleTitle.Render("Buy PUT") + "  " + styleWhiteStr(s.Symbol) + "  " + styleWhiteStr(s.Name)
+	priceInfo := styleWhiteStr("Current: ") +
+		lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(fmt.Sprintf("$%.2f  ", s.Price)) +
+		cs.Render(fmt.Sprintf("(%s%.2f%%)", signStr(pct), pct))
+
+	iv := market.ImpliedVol(s.Volatility)
+	strikes := game.PutStrikes(s.Price)
+	expiries := putExpiries
+
+	// Strike table
+	strikeHeader := styleNeutral.Render(
+		"  " + padR("STRIKE", 10) + padR("MONEYNESS", 15) + padR("PREM/CONTRACT", 16) + "BREAK-EVEN")
+	var strikeRows strings.Builder
+	for i, strike := range strikes {
+		pricePerShare := market.PutPrice(s.Price, strike, iv, int(expiries[m.putExpiryCursor]))
+		premiumPerContract := pricePerShare * 100
+		breakeven := strike - pricePerShare
+		row := padR(fmt.Sprintf("$%.2f", strike), 10) +
+			padR(putMoneynessLabels[i], 15) +
+			padR(fmt.Sprintf("$%.2f", premiumPerContract), 16) +
+			fmt.Sprintf("$%.2f", breakeven)
+		if i == m.putStrikeCursor {
+			strikeRows.WriteString(styleSelected.Render("▶ "+row) + "\n")
+		} else {
+			strikeRows.WriteString(styleNeutral.Render("  "+row) + "\n")
+		}
+	}
+
+	// Expiry row
+	var expiryParts []string
+	expiryLabels := []string{"Short (~1m)", "Medium (~3m)", "Long (~5m)"}
+	for i, lbl := range expiryLabels {
+		if i == m.putExpiryCursor {
+			expiryParts = append(expiryParts, styleSelected.Render(" "+lbl+" "))
+		} else {
+			expiryParts = append(expiryParts, styleNeutral.Render(" "+lbl+" "))
+		}
+	}
+	expiryRow := styleNeutral.Render("Expiry:  ") + strings.Join(expiryParts, styleNeutral.Render("·"))
+
+	// Cost preview
+	selectedStrike := strikes[m.putStrikeCursor]
+	selectedExpiry := expiries[m.putExpiryCursor]
+	pricePerShare := market.PutPrice(s.Price, selectedStrike, iv, int(selectedExpiry))
+	contractsStr := strings.TrimSpace(m.inputShares.Value())
+	contracts, _ := strconv.Atoi(contractsStr)
+	var costLine string
+	if contracts > 0 {
+		total := pricePerShare * 100 * float64(contracts)
+		costLine = styleNeutral.Render("Total cost: ") + styleAccentStr(fmt.Sprintf("$%.2f", total))
+		if total > m.g.Cash {
+			costLine += "  " + styleError.Render("insufficient funds")
+		}
+	}
+
+	contractInput := lipgloss.JoinHorizontal(lipgloss.Center,
+		styleNeutral.Render("Contracts: "),
+		styleInput.Render(m.inputShares.View()))
+
+	cashLine := styleNeutral.Render("Cash: ") + stylePositive.Render(fmt.Sprintf("$%s", commaf(m.g.Cash)))
+
+	feedback := ""
+	if m.errMsg != "" {
+		feedback = "\n" + styleError.Render("⚠ "+m.errMsg)
+	}
+
+	keys := styleHint.Render(" ↑↓=strike  ◀▶=expiry  enter=buy  esc=cancel")
+
+	inner := title + "\n" + priceInfo + "\n\n" +
+		strikeHeader + "\n" + strikeRows.String() + "\n" +
+		expiryRow + "\n\n" +
+		contractInput + "\n" +
+		cashLine + "    " + costLine + feedback + "\n\n" +
 		keys
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,

@@ -33,6 +33,8 @@ type gameState struct {
 	Positions      map[string]*Position `json:"positions"`
 	Orders         []*Order             `json:"orders"`
 	NextOrderID    int                  `json:"next_order_id"`
+	Puts           []*PutContract       `json:"puts"`
+	NextPutID      int                  `json:"next_put_id"`
 	Messages       []string             `json:"messages"`
 	Market         market.MarketState   `json:"market"`
 }
@@ -89,6 +91,8 @@ func Save(g *Game, slot int) error {
 		Positions:      g.Positions,
 		Orders:         g.Orders,
 		NextOrderID:    g.nextOrderID,
+		Puts:           g.Puts,
+		NextPutID:      g.nextPutID,
 		Messages:       g.Messages,
 		Market:         g.Market.Export(),
 	}
@@ -122,10 +126,15 @@ func Load(slot int) (*Game, error) {
 		Positions:    gs.Positions,
 		Orders:       gs.Orders,
 		nextOrderID:  gs.NextOrderID,
+		Puts:         gs.Puts,
+		nextPutID:    gs.NextPutID,
 		Messages:     gs.Messages,
 	}
 	if g.Positions == nil {
 		g.Positions = make(map[string]*Position)
+	}
+	if g.Puts == nil {
+		g.Puts = []*PutContract{}
 	}
 	return g, nil
 }
