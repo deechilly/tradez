@@ -46,38 +46,24 @@ func Connect() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewClient(desc), nil
+	client := NewClient(desc)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Probe(ctx); err != nil {
+		return nil, fmt.Errorf("live tradez bridge descriptor is stale or unreachable; start the TUI first: %w", err)
+	}
+	return client, nil
+}
+
+func (c *Client) Probe(ctx context.Context) error {
+	_, err := c.call(ctx, OpGameState, nil)
+	return err
 }
 
 func (c *Client) Call(ctx context.Context, op Operation, payload any, out any) error {
-	body, err := json.Marshal(struct {
-		Operation Operation `json:"operation"`
-		Payload   any       `json:"payload,omitempty"`
-	}{Operation: op, Payload: payload})
+	res, err := c.call(ctx, op, payload)
 	if err != nil {
 		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.desc.URL, "/")+"/rpc", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.desc.Token)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("live tradez bridge is unavailable or stale: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("live tradez bridge returned %s", resp.Status)
-	}
-
-	var res rpcResponse
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return fmt.Errorf("invalid bridge response: %w", err)
 	}
 	if !res.OK {
 		return errors.New(res.Error)
@@ -89,4 +75,37 @@ func (c *Client) Call(ctx context.Context, op Operation, payload any, out any) e
 		return fmt.Errorf("invalid bridge payload: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) call(ctx context.Context, op Operation, payload any) (rpcResponse, error) {
+	body, err := json.Marshal(struct {
+		Operation Operation `json:"operation"`
+		Payload   any       `json:"payload,omitempty"`
+	}{Operation: op, Payload: payload})
+	if err != nil {
+		return rpcResponse{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.desc.URL, "/")+"/rpc", bytes.NewReader(body))
+	if err != nil {
+		return rpcResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.desc.Token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return rpcResponse{}, fmt.Errorf("live tradez bridge is unavailable or stale: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return rpcResponse{}, fmt.Errorf("live tradez bridge returned %s", resp.Status)
+	}
+
+	var res rpcResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return rpcResponse{}, fmt.Errorf("invalid bridge response: %w", err)
+	}
+	return res, nil
 }

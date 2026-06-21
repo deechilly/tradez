@@ -73,7 +73,7 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Close() error {
-	_ = os.Remove(DescriptorPath())
+	_ = s.removeDescriptorIfOwned()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.httpServer.Shutdown(ctx)
@@ -111,6 +111,30 @@ func (s *Server) writeDescriptor() error {
 		return err
 	}
 	return os.WriteFile(path, data, 0600)
+}
+
+func (s *Server) removeDescriptorIfOwned() error {
+	path := DescriptorPath()
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var current Descriptor
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	own := s.Descriptor()
+	if current.URL != own.URL || current.Token != own.Token || current.PID != own.PID {
+		return nil
+	}
+	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else {
+		return err
+	}
 }
 
 type rpcRequest struct {
