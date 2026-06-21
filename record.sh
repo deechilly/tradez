@@ -33,7 +33,15 @@ ok "Build complete"
 info "Recording tour (~40 seconds)..."
 info "Note: this will overwrite any save in Game 1 slot (~/.tradez/saves/slot1.json)"
 vhs tour.tape
-ok "Recording complete → recording.gif"
+ok "VHS render complete"
+
+# ── optimise ──────────────────────────────────────────────────────────────────
+info "Optimising GIF..."
+ffmpeg -i recording.gif \
+  -vf "split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
+  -y recording_opt.gif 2>/dev/null
+mv recording_opt.gif recording.gif
+ok "Recording complete → recording.gif ($(du -sh recording.gif | cut -f1))"
 
 # ── cleanup ───────────────────────────────────────────────────────────────────
 rm -f tradez

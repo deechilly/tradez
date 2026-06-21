@@ -1,9 +1,9 @@
 Output recording.gif
 
 Set FontSize 13
-Set Width 200
-Set Height 50
-Set Framerate 30
+Set Width 1200
+Set Height 675
+Set Framerate 20
 Set PlaybackSpeed 1.0
 Set Theme "GitHub Dark"
 
@@ -95,7 +95,7 @@ Escape
 Sleep 500ms
 
 # ── save to Game 1 ────────────────────────────────────────────────────────────
-Ctrl+s
+Ctrl+S
 Sleep 2.5s
 
 # ── return to slot select: Game 1 now shows saved metadata ───────────────────
