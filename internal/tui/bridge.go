@@ -74,6 +74,9 @@ func (m *Model) bridgeResponse(req livebridge.RequestMsg) livebridge.Response {
 		if m.activeSlot <= 0 {
 			return bridgeError(fmt.Errorf("no active save slot"))
 		}
+		if m.g.StartingCash <= 0 {
+			return bridgeError(fmt.Errorf("cannot save before starting capital is selected"))
+		}
 		if err := game.Save(m.g, m.activeSlot); err != nil {
 			return bridgeError(fmt.Errorf("save failed: %w", err))
 		}
