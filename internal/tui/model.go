@@ -28,6 +28,7 @@ const (
 	screenOrders
 	screenTrade
 	screenAchievements
+	screenGlossary
 )
 
 
@@ -110,6 +111,8 @@ type Model struct {
 	flashAchieveTick  int
 	achieveQueue      []string
 	achScroll         int
+	glossaryScroll    int
+	prevScreen        screen
 }
 
 func NewModel() Model {
@@ -253,6 +256,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// ? opens glossary from any game screen; esc returns to wherever you were.
+	if msg.String() == "?" && m.screen != screenGlossary && m.screen != screenSlotSelect && m.screen != screenMenu && m.screen != screenCapital {
+		m.prevScreen = m.screen
+		m.glossaryScroll = 0
+		m.screen = screenGlossary
+		return m, nil
+	}
 	switch m.screen {
 	case screenSlotSelect:
 		return m.handleSlotSelectKey(msg)
@@ -272,6 +282,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTradeKey(msg)
 	case screenAchievements:
 		return m.handleAchievementsKey(msg)
+	case screenGlossary:
+		return m.handleGlossaryKey(msg)
 	}
 	return m, nil
 }
@@ -666,6 +678,8 @@ func (m Model) View() string {
 		return m.viewTrade()
 	case screenAchievements:
 		return m.viewAchievements()
+	case screenGlossary:
+		return m.viewGlossary()
 	}
 	return ""
 }
@@ -1077,7 +1091,7 @@ func (m Model) viewMarket() string {
 		msgLine = " " + styleNeutral.Render(m.g.Messages[len(m.g.Messages)-1])
 	}
 
-	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  a=achievements  1-5=sort  n=news  ctrl+s=save  esc=menu  q=quit")
+	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  a=achievements  1-5=sort  n=news  ctrl+s=save  esc=menu  ?=help  q=quit")
 
 	div := styleNeutral.Render(strings.Repeat("─", tW))
 
@@ -1394,7 +1408,7 @@ func (m Model) viewStock() string {
 
 	div := styleNeutral.Render(strings.Repeat("─", w))
 	tabHint := "tab=chart/details/analysis"
-	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  p=put  " + tabHint + "  esc=back")
+	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  p=put  " + tabHint + "  ?=help  esc=back")
 
 	return title + "\n" + priceBar + "\n" +
 		div + "\n" +
