@@ -19,7 +19,8 @@ import (
 type screen int
 
 const (
-	screenMenu screen = iota
+	screenSlotSelect screen = iota
+	screenMenu
 	screenCapital
 	screenMarket
 	screenStock
@@ -67,6 +68,9 @@ const (
 type Model struct {
 	g                 *game.Game
 	screen            screen
+	activeSlot        int             // 1–3; 0 until a slot is chosen
+	slotCursor        int             // 0–2 on the slot-select screen
+	slotInfos         [3]game.SaveSlot
 	pendingDifficulty game.Difficulty
 	width             int
 	height            int
@@ -103,7 +107,7 @@ type Model struct {
 	achScroll         int
 }
 
-func NewModel(g *game.Game) Model {
+func NewModel() Model {
 	ti := textinput.New()
 	ti.Placeholder = "100"
 	ti.CharLimit = 10
@@ -115,8 +119,7 @@ func NewModel(g *game.Game) Model {
 	tp.Width = 12
 
 	m := Model{
-		g:                g,
-		screen:           screenMenu,
+		screen:           screenSlotSelect,
 		sortCol:          0,
 		sortAsc:          true,
 		inputShares:      ti,
@@ -128,11 +131,20 @@ func NewModel(g *game.Game) Model {
 		seenFilledOrders: make(map[int]bool),
 		perSymbolWins:    make(map[string][2]bool),
 	}
-	m.refreshStocks()
+	m.loadSlotInfos()
 	return m
 }
 
+func (m *Model) loadSlotInfos() {
+	for i := 0; i < 3; i++ {
+		m.slotInfos[i] = game.SlotInfo(i + 1)
+	}
+}
+
 func (m *Model) refreshStocks() {
+	if m.g == nil {
+		return
+	}
 	m.stocks = m.g.Market.Snapshot()
 	m.sortStocks()
 }
@@ -188,33 +200,35 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case time.Time:
-		prevPortfolioVal := m.g.PortfolioValue()
+		if m.g != nil {
+			prevPortfolioVal := m.g.PortfolioValue()
 
-		newEvent := m.g.Market.Tick()
-		m.g.ProcessLimitOrders()
-		m.checkNewLimitFills()
-		m.refreshStocks()
+			newEvent := m.g.Market.Tick()
+			m.g.ProcessLimitOrders()
+			m.checkNewLimitFills()
+			m.refreshStocks()
 
-		if newEvent != nil {
-			m.flashNews = newEvent
-			m.flashTicks = 6
-			m.updateStormWatch(newEvent)
-		}
-		if m.flashTicks > 0 {
-			m.flashTicks--
-			if m.flashTicks == 0 {
-				m.flashNews = nil
+			if newEvent != nil {
+				m.flashNews = newEvent
+				m.flashTicks = 6
+				m.updateStormWatch(newEvent)
 			}
-		}
+			if m.flashTicks > 0 {
+				m.flashTicks--
+				if m.flashTicks == 0 {
+					m.flashNews = nil
+				}
+			}
 
-		m.checkTickAchievements(prevPortfolioVal)
-		m.tickAchieveFlash()
+			m.checkTickAchievements(prevPortfolioVal)
+			m.tickAchieveFlash()
 
-		if m.msgTimer > 0 {
-			m.msgTimer--
-			if m.msgTimer == 0 {
-				m.errMsg = ""
-				m.okMsg = ""
+			if m.msgTimer > 0 {
+				m.msgTimer--
+				if m.msgTimer == 0 {
+					m.errMsg = ""
+					m.okMsg = ""
+				}
 			}
 		}
 		return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
@@ -234,6 +248,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
+	case screenSlotSelect:
+		return m.handleSlotSelectKey(msg)
 	case screenMenu:
 		return m.handleMenuKey(msg)
 	case screenCapital:
@@ -295,6 +311,10 @@ func (m Model) handleMarketKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "esc":
+		m.loadSlotInfos()
+		m.screen = screenSlotSelect
+		return m, nil
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
@@ -337,6 +357,15 @@ func (m Model) handleMarketKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.screen = screenAchievements
 		m.achScroll = 0
+	case "ctrl+s":
+		if m.activeSlot > 0 {
+			if err := game.Save(m.g, m.activeSlot); err != nil {
+				m.errMsg = fmt.Sprintf("Save failed: %v", err)
+			} else {
+				m.okMsg = fmt.Sprintf("Saved to Game %d", m.activeSlot)
+			}
+			m.msgTimer = 3
+		}
 	case "n":
 		m.newsVisible = !m.newsVisible
 	case "pgup":
@@ -536,6 +565,8 @@ func (m Model) handleTradeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	switch m.screen {
+	case screenSlotSelect:
+		return m.viewSlotSelect()
 	case screenMenu:
 		return m.viewMenu()
 	case screenCapital:
@@ -554,6 +585,118 @@ func (m Model) View() string {
 		return m.viewAchievements()
 	}
 	return ""
+}
+
+func (m Model) handleSlotSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.slotCursor > 0 {
+			m.slotCursor--
+		}
+	case "down", "j":
+		if m.slotCursor < 2 {
+			m.slotCursor++
+		}
+	case "1":
+		m.slotCursor = 0
+		return m.activateSlot()
+	case "2":
+		m.slotCursor = 1
+		return m.activateSlot()
+	case "3":
+		m.slotCursor = 2
+		return m.activateSlot()
+	case "enter":
+		return m.activateSlot()
+	case "n":
+		return m.startNewGameInSlot()
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) activateSlot() (tea.Model, tea.Cmd) {
+	slot := m.slotInfos[m.slotCursor]
+	if slot.Exists {
+		g, err := game.Load(slot.Number)
+		if err == nil {
+			m.g = g
+			m.activeSlot = slot.Number
+			m.refreshStocks()
+			m.screen = screenMarket
+			return m, nil
+		}
+	}
+	return m.startNewGameInSlot()
+}
+
+func (m Model) startNewGameInSlot() (tea.Model, tea.Cmd) {
+	mkt := market.New(time.Now().UnixNano())
+	m.g = game.New(mkt)
+	m.activeSlot = m.slotInfos[m.slotCursor].Number
+	m.screen = screenMenu
+	return m, nil
+}
+
+func (m Model) viewSlotSelect() string {
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+
+	logo := styleTitle.Render(`
+  ████████╗██████╗  █████╗ ██████╗ ███████╗███████╗
+     ██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══███╔╝
+     ██║   ██████╔╝███████║██║  ██║█████╗    ███╔╝
+     ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝   ███╔╝
+     ██║   ██║  ██║██║  ██║██████╔╝███████╗███████╗
+     ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝`)
+
+	var rows []string
+	for i, slot := range m.slotInfos {
+		cursor := "   "
+		if i == m.slotCursor {
+			cursor = styleAccentStr(" ▶ ")
+		}
+		label := styleWhiteStr(slot.Name)
+
+		var detail string
+		if slot.Exists {
+			pnl := slot.PortfolioValue - slot.StartingCash
+			pnlStr := fmt.Sprintf("%s$%s", signStr(pnl), commaf(math.Abs(pnl)))
+			d := time.Since(slot.SavedAt)
+			var agoStr string
+			switch {
+			case d < time.Minute:
+				agoStr = fmt.Sprintf("%ds ago", int(d.Seconds()))
+			case d < time.Hour:
+				agoStr = fmt.Sprintf("%dm ago", int(d.Minutes()))
+			case d < 24*time.Hour:
+				agoStr = fmt.Sprintf("%dh ago", int(d.Hours()))
+			default:
+				agoStr = fmt.Sprintf("%dd ago", int(d.Hours()/24))
+			}
+			detail = styleNeutral.Render("  ·  ") +
+				styleWhiteStr("Portfolio ") + styleAccentStr("$"+commaf(slot.PortfolioValue)) +
+				styleNeutral.Render("  P&L ") + colorForChange(pnl).Render(pnlStr) +
+				styleNeutral.Render("  ") + styleHint.Render(slot.Difficulty.String()) +
+				styleNeutral.Render("  ·  ") + styleHint.Render(agoStr)
+		} else {
+			detail = styleNeutral.Render("  ·  ") + styleHint.Render("[empty — press enter to start new game]")
+		}
+		rows = append(rows, cursor+label+detail)
+	}
+
+	hints := styleHint.Render("  [enter] Load  ·  [n] New Game  ·  [↑↓ / jk] Navigate  ·  [q] Quit")
+
+	content := logo + "\n\n" +
+		styleHeader.Render("  Save Slots") + "\n\n" +
+		strings.Join(rows, "\n") + "\n\n" +
+		hints
+
+	return lipgloss.Place(w, m.height, lipgloss.Center, lipgloss.Center,
+		styleBorder.Padding(2, 4).Render(content))
 }
 
 func (m Model) viewMenu() string {
@@ -648,7 +791,14 @@ func (m Model) viewMarket() string {
 	pnlStyle := colorForChange(pnl)
 
 	nextNews := m.g.Market.NextNewsIn()
-	nextStr := fmt.Sprintf("next news in %ds", int(nextNews.Seconds()))
+	var rightStatus string
+	if m.okMsg != "" {
+		rightStatus = styleOk.Render(m.okMsg)
+	} else if m.errMsg != "" {
+		rightStatus = styleError.Render(m.errMsg)
+	} else {
+		rightStatus = styleHint.Render(fmt.Sprintf("next news in %ds", int(nextNews.Seconds())))
+	}
 
 	header := styleHeader.Render(" TRADEZ ") +
 		styleNeutral.Render(" │ ") +
@@ -660,7 +810,7 @@ func (m Model) viewMarket() string {
 		styleNeutral.Render("  ") +
 		styleHint.Render(time.Now().Format("15:04:05")) +
 		styleNeutral.Render("  ") +
-		styleHint.Render(nextStr)
+		rightStatus
 
 	// ── sort bar ─────────────────────────────────────────────────────────
 	sortLabels := [5]string{"1:SYM", "2:PRI", "3:CHG%", "4:VOL", "5:CAP"}
@@ -844,7 +994,7 @@ func (m Model) viewMarket() string {
 		msgLine = " " + styleNeutral.Render(m.g.Messages[len(m.g.Messages)-1])
 	}
 
-	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  a=achievements  1-5=sort  n=news  q=quit")
+	keys := styleHint.Render(" ↑↓/jk  enter=detail  b=buy  s=sell  p=portfolio  o=orders  a=achievements  1-5=sort  n=news  ctrl+s=save  esc=menu  q=quit")
 
 	div := styleNeutral.Render(strings.Repeat("─", tW))
 
