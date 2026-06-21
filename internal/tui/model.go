@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"tradez/internal/analysis"
 	"tradez/internal/game"
+	"tradez/internal/livebridge"
 	"tradez/internal/market"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -30,7 +32,6 @@ const (
 	screenAchievements
 	screenGlossary
 )
-
 
 type tradeMode int
 
@@ -71,9 +72,10 @@ const (
 
 type Model struct {
 	g                 *game.Game
+	bridge            *livebridge.Server
 	screen            screen
-	activeSlot        int             // 1–3; 0 until a slot is chosen
-	slotCursor        int             // 0–2 on the slot-select screen
+	activeSlot        int // 1–3; 0 until a slot is chosen
+	slotCursor        int // 0–2 on the slot-select screen
 	slotInfos         [3]game.SaveSlot
 	pendingDifficulty game.Difficulty
 	width             int
@@ -115,7 +117,15 @@ type Model struct {
 	prevScreen        screen
 }
 
-func NewModel() Model {
+type Option func(*Model)
+
+func WithBridge(bridge *livebridge.Server) Option {
+	return func(m *Model) {
+		m.bridge = bridge
+	}
+}
+
+func NewModel(opts ...Option) Model {
 	ti := textinput.New()
 	ti.Placeholder = "100"
 	ti.CharLimit = 10
@@ -139,8 +149,18 @@ func NewModel() Model {
 		seenFilledOrders: make(map[int]bool),
 		perSymbolWins:    make(map[string][2]bool),
 	}
+	for _, opt := range opts {
+		opt(&m)
+	}
 	m.loadSlotInfos()
+	m.syncBridgeSlot()
 	return m
+}
+
+func (m *Model) syncBridgeSlot() {
+	if m.bridge != nil {
+		m.bridge.SetActiveSlot(m.activeSlot)
+	}
 }
 
 func (m *Model) loadSlotInfos() {
@@ -250,6 +270,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case livebridge.RequestMsg:
+		m.handleBridgeRequest(msg)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -438,7 +462,7 @@ func (m *Model) openTrade(mode tradeMode) {
 		m.putExpiryCursor = 1 // default Medium
 	}
 	if s := m.g.Market.GetStock(m.stockSymbol); s != nil {
-		m.lastAnalysisScore = m.analysisComposite(s)
+		m.lastAnalysisScore = analysis.Analyze(m.g.Market, s).CompositeScore
 	}
 }
 
@@ -723,6 +747,7 @@ func (m Model) activateSlot() (tea.Model, tea.Cmd) {
 		if err == nil {
 			m.g = g
 			m.activeSlot = slot.Number
+			m.syncBridgeSlot()
 			m.refreshStocks()
 			m.screen = screenMarket
 			return m, nil
@@ -735,6 +760,7 @@ func (m Model) startNewGameInSlot() (tea.Model, tea.Cmd) {
 	mkt := market.New(time.Now().UnixNano())
 	m.g = game.New(mkt)
 	m.activeSlot = m.slotInfos[m.slotCursor].Number
+	m.syncBridgeSlot()
 	m.screen = screenMenu
 	return m, nil
 }
@@ -1384,12 +1410,12 @@ func (m Model) viewStock() string {
 	if pos != nil && (pos.Shares > 0 || pos.ShortShares > 0) {
 		pnlLong := pos.LongPnL(s.Price)
 		posSummary = "\n" + styleBorder.Padding(0, 1).Render(
-			styleWhiteStr("Position: ") +
-				stylePositive.Render(fmt.Sprintf("%d long", pos.Shares)) +
-				styleNeutral.Render(" │ ") +
-				styleNegative.Render(fmt.Sprintf("%d short", pos.ShortShares)) +
-				styleNeutral.Render(fmt.Sprintf("  Avg: $%.2f", pos.AvgCost)) +
-				"  P&L: " + colorForChange(pnlLong).Render(fmt.Sprintf("%s$%.2f", signStr(pnlLong), math.Abs(pnlLong))),
+			styleWhiteStr("Position: ")+
+				stylePositive.Render(fmt.Sprintf("%d long", pos.Shares))+
+				styleNeutral.Render(" │ ")+
+				styleNegative.Render(fmt.Sprintf("%d short", pos.ShortShares))+
+				styleNeutral.Render(fmt.Sprintf("  Avg: $%.2f", pos.AvgCost))+
+				"  P&L: "+colorForChange(pnlLong).Render(fmt.Sprintf("%s$%.2f", signStr(pnlLong), math.Abs(pnlLong))),
 		)
 	}
 
@@ -2220,7 +2246,7 @@ func sparklineChars(history []market.PricePoint, width int) string {
 	for i, p := range pts {
 		idx := 0
 		if rng > 0 {
-			idx = int((p.Price-min)/rng*float64(len(bars)-1))
+			idx = int((p.Price - min) / rng * float64(len(bars)-1))
 		}
 		result[i] = bars[idx]
 	}

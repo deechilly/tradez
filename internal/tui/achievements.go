@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"tradez/internal/analysis"
 	"tradez/internal/game"
 	"tradez/internal/market"
 
@@ -16,7 +17,7 @@ import (
 type positionTrack struct {
 	openedAt      time.Time
 	lastTouchedAt time.Time
-	minPnLPct     float64 // most negative P&L% seen (e.g. -0.40 = 40% down)
+	minPnLPct     float64   // most negative P&L% seen (e.g. -0.40 = 40% down)
 	underwaterAt  time.Time // when it went below -40%; zero if currently above
 }
 
@@ -373,90 +374,10 @@ func (m *Model) checkTradeAchievements(
 // analysisComposite computes the weighted analyst composite score for a stock.
 // Mirrors the calculation in renderAnalysis without the rendering.
 func (m Model) analysisComposite(s *market.Stock) float64 {
-	if s == nil {
+	if s == nil || m.g == nil {
 		return 0
 	}
-
-	// Fundamentals (30%)
-	pe := s.PERatio
-	avgPE := industryAvgPE(s.Industry)
-	peScore := 0.0
-	switch {
-	case pe <= 0:
-		peScore = -0.3
-	case pe < avgPE*0.65:
-		peScore = 0.7
-	case pe < avgPE*0.9:
-		peScore = 0.35
-	case pe < avgPE*1.15:
-		peScore = 0.05
-	case pe < avgPE*1.5:
-		peScore = -0.3
-	default:
-		peScore = -0.6
-	}
-	fundScore := peScore * 0.40
-	if s.EPS > 0 {
-		fundScore += 0.3 * 0.25
-	} else if s.EPS < 0 {
-		fundScore += -0.5 * 0.25
-	}
-	ytdScore := 0.0
-	switch {
-	case s.YTDGrowth < -40:
-		ytdScore = 0.5
-	case s.YTDGrowth < -20:
-		ytdScore = 0.25
-	case s.YTDGrowth > 60:
-		ytdScore = -0.4
-	case s.YTDGrowth > 30:
-		ytdScore = -0.15
-	}
-	fundScore += ytdScore * 0.20
-	fundScore += math.Min(s.DivYield/6.0, 0.5) * 0.15
-	if fundScore > 1 {
-		fundScore = 1
-	} else if fundScore < -1 {
-		fundScore = -1
-	}
-
-	// Technicals (35%)
-	hist := s.History
-	sma20 := calcSMA(hist, 20)
-	sma50 := calcSMA(hist, 50)
-	techScore := 0.0
-	if sma20 > 0 {
-		if s.Price > sma20 {
-			techScore += 0.30
-		} else {
-			techScore -= 0.30
-		}
-	}
-	if sma50 > 0 {
-		if s.Price > sma50 {
-			techScore += 0.25
-		} else {
-			techScore -= 0.25
-		}
-	}
-	techScore += calcMomentum(hist, 15) * 0.45
-	if techScore > 1 {
-		techScore = 1
-	} else if techScore < -1 {
-		techScore = -1
-	}
-
-	// News (35%)
-	netInf := m.g.Market.StockInfluenceStrength(s.Symbol)
-	newsScore := math.Max(-1.0, math.Min(1.0, netInf*4))
-
-	composite := fundScore*0.30 + techScore*0.35 + newsScore*0.35
-	if composite > 1 {
-		composite = 1
-	} else if composite < -1 {
-		composite = -1
-	}
-	return composite
+	return analysis.Analyze(m.g.Market, s).CompositeScore
 }
 
 // ── Achievement screen ────────────────────────────────────────────────────────
