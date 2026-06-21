@@ -399,3 +399,67 @@ tradez/
 ```
 
 **Dependencies:** [Bubbletea](https://github.com/charmbracelet/bubbletea) · [Lipgloss](https://github.com/charmbracelet/lipgloss) · [Bubbles](https://github.com/charmbracelet/bubbles) · [asciigraph](https://github.com/guptarohit/asciigraph)
+
+---
+
+## Recording
+
+`record.sh` builds the binary, plays `tour.tape` through [VHS](https://github.com/charmbracelet/vhs), and writes the result to `recording.gif`. VHS requires **ffmpeg** and **ttyd** in addition to the `vhs` binary itself.
+
+### macOS
+
+```bash
+brew install vhs ttyd ffmpeg
+./record.sh
+```
+
+### Linux
+
+VHS publishes pre-built binaries, distro packages, and a Go install path. Pick whichever fits your setup:
+
+**Debian / Ubuntu**
+```bash
+# via Charm's apt repository
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \
+  | sudo tee /etc/apt/sources.list.d/charm.list
+sudo apt update && sudo apt install vhs ttyd ffmpeg
+```
+
+**Fedora / RHEL / openSUSE**
+```bash
+# via Charm's yum repository
+echo '[charm]
+name=Charm
+baseurl=https://repo.charm.sh/yum/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.charm.sh/yum/gpg.key' | sudo tee /etc/yum.repos.d/charm.repo
+sudo yum install vhs ttyd ffmpeg
+```
+
+**Arch Linux**
+```bash
+# vhs and ttyd are in the AUR
+yay -S vhs ttyd
+sudo pacman -S ffmpeg
+```
+
+**Any distro — via Go**
+```bash
+go install github.com/charmbracelet/vhs@latest
+# grab a ttyd binary from https://github.com/tsl0922/ttyd/releases
+# and place it somewhere on your PATH
+sudo apt install ffmpeg   # or equivalent for your distro
+```
+
+**Any distro — pre-built binaries**
+
+Download `vhs` from [github.com/charmbracelet/vhs/releases](https://github.com/charmbracelet/vhs/releases) and `ttyd` from [github.com/tsl0922/ttyd/releases](https://github.com/tsl0922/ttyd/releases). Place both somewhere on your `$PATH`.
+
+Once dependencies are in place:
+
+```bash
+./record.sh
+```
