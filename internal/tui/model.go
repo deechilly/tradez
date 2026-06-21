@@ -1394,7 +1394,7 @@ func (m Model) viewStock() string {
 
 	div := styleNeutral.Render(strings.Repeat("─", w))
 	tabHint := "tab=chart/details/analysis"
-	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  " + tabHint + "  esc=back")
+	keys := styleHint.Render(" b=buy  s=sell  l=limit buy  x=limit sell  h=short  c=cover  p=put  " + tabHint + "  esc=back")
 
 	return title + "\n" + priceBar + "\n" +
 		div + "\n" +
