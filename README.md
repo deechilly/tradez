@@ -38,7 +38,69 @@ go build -o tradez .
 ./tradez
 ```
 
-Requires Go 1.21+.
+Requires the Go version declared in `go.mod`.
+
+---
+
+## MCP Integration
+
+tradez can expose a live running game to MCP-compatible AI tools.
+
+Start the TUI first:
+
+```bash
+go run .
+```
+
+Then configure your MCP client to launch:
+
+```bash
+go run . mcp
+```
+
+The MCP server uses stdio, so the AI client owns the MCP process lifecycle. The running TUI exposes a private bridge on `127.0.0.1` and writes a token-protected descriptor to `~/.tradez/bridge/current.json`. If no live TUI is running, `tradez mcp` exits with a clear error.
+
+By default, MCP tools can read game state and execute trades in the active live game. For read-only access:
+
+```bash
+go run . mcp --read-only
+```
+
+### MCP Features
+
+Resources:
+
+- `tradez://game/summary`
+- `tradez://market/stocks`
+- `tradez://market/news`
+- `tradez://market/influences`
+- `tradez://portfolio`
+- `tradez://orders`
+- `tradez://stock/{symbol}`
+
+Read tools:
+
+- `get_game_state`
+- `list_stocks`
+- `get_stock`
+- `get_news`
+- `get_portfolio`
+- `get_orders`
+
+Mutating tools, omitted by `--read-only`:
+
+- `place_order`
+- `cancel_order`
+- `save_game`
+
+Prompts:
+
+- `analyze_market`
+- `explain_news_impact`
+- `review_portfolio`
+- `propose_trade_plan`
+
+MCP-triggered trades are routed through the TUI event loop, so portfolio state, order history, status messages, and achievement checks update the same way as keyboard-driven trades.
 
 ---
 
@@ -363,6 +425,16 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 tradez/
 ├── main.go                    Entry point
 └── internal/
+    ├── analysis/
+    │   └── analysis.go        Shared analyst scoring for TUI and MCP
+    ├── livebridge/
+    │   ├── client.go          Token-authenticated bridge client for MCP mode
+    │   ├── server.go          Localhost bridge owned by the running TUI
+    │   └── types.go           Shared bridge operations and payloads
+    ├── mcpserver/
+    │   └── server.go          Stdio MCP server, tools, resources, prompts
+    ├── snapshot/
+    │   └── snapshot.go        JSON-safe game, market, portfolio DTOs
     ├── market/
     │   ├── stock.go           Stock model and price point history
     │   ├── generator.go       Procedural market and company generation
