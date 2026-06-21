@@ -42,6 +42,27 @@ Requires Go 1.21+.
 
 ---
 
+## Save Slots
+
+tradez opens on a **slot selection screen** with three save slots labelled Game 1, Game 2, and Game 3. Each slot stores the complete game state: your portfolio, all open and filled orders, the current news cycle, active market influences, and the timer to the next news event.
+
+| Action | Key |
+|--------|-----|
+| Navigate slots | `↑` / `↓` or `j` / `k` |
+| Load save / start new game (empty slot) | `enter` |
+| Start a new game in the selected slot | `n` |
+| Jump directly to slot | `1`, `2`, or `3` |
+
+Selecting a slot with an existing save loads it immediately. The slot displays your saved portfolio value, P&L, difficulty, and how long ago it was saved.
+
+**Saving in-game:** press `ctrl+s` from the Market screen at any time to overwrite the current slot. The header bar briefly confirms the save.
+
+**Returning to the menu:** press `esc` from the Market screen to go back to the slot selection screen without quitting. The slot metadata refreshes so you can see your last saved state before switching or starting over.
+
+Save files are stored in `~/.tradez/saves/slot{1,2,3}.json`.
+
+---
+
 ## Difficulty & Starting Capital
 
 At launch you make two choices independently.
@@ -278,8 +299,10 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `n`       | Toggle Market Feed panel                            |
 | `a`       | Open achievements screen                            |
 | `1`–`5`   | Sort by symbol / price / change% / volume / mkt cap |
+| `ctrl+s`  | Save game to current slot                           |
 | `pgup`    | Scroll news feed up                                 |
 | `pgdn`    | Scroll news feed down                               |
+| `esc`     | Return to slot selection screen                     |
 | `q`       | Quit                                                |
 
 ### Stock Detail
@@ -344,10 +367,12 @@ tradez/
     │   ├── stock.go           Stock model and price point history
     │   ├── generator.go       Procedural market and company generation
     │   ├── market.go          Price engine, news scheduling, tick loop
-    │   └── news.go            54 news templates, InfluenceEffect per-group
-    │                          sentiments, MarketInfluence decay model
+    │   ├── news.go            54 news templates, InfluenceEffect per-group
+    │   │                      sentiments, MarketInfluence decay model
+    │   └── save.go            MarketState snapshot for save/load
     ├── game/
     │   ├── game.go            Game state, portfolio, all order type logic
+    │   ├── save.go            Save/load logic, slot metadata, JSON serialisation
     │   └── achievements.go    21 achievement definitions, JSON persistence
     └── tui/
         ├── model.go           Bubbletea model, all views and key handlers,
