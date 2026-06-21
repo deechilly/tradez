@@ -312,6 +312,7 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `n`       | Toggle Market Feed panel                            |
 | `a`       | Open achievements screen                            |
 | `1`–`5`   | Sort by symbol / price / change% / volume / mkt cap |
+| `?`       | Open glossary screen                                |
 | `ctrl+s`  | Save game to current slot                           |
 | `pgup`    | Scroll news feed up                                 |
 | `pgdn`    | Scroll news feed down                               |
@@ -356,6 +357,12 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 | `↓` / `j` / `pgdn` | Scroll down |
 | `esc`            | Back          |
 
+### Glossary Screen
+
+| Key   | Action                        |
+|-------|-------------------------------|
+| `↑↓`  | Navigate glossary terms       |
+| `esc` | Back                          |
 ---
 
 ## Strategy Tips
