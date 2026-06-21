@@ -94,6 +94,26 @@ Sleep 1.5s
 Escape
 Sleep 500ms
 
+# ── glossary: see the help screen and glossry of terms ────────────────────────
+
+Type "?"
+Sleep 500ms
+
+Down
+Sleep 1s
+
+Down
+Sleep 1s
+
+Down
+Sleep 1s
+
+Down
+Sleep 1s
+
+Escape
+Sleep 2s
+
 # ── save to Game 1 ────────────────────────────────────────────────────────────
 Ctrl+S
 Sleep 2.5s
