@@ -52,7 +52,7 @@ Start the TUI first:
 go run .
 ```
 
-Then configure your MCP client to launch:
+Load or start a save slot so there is an active live game. Then configure your MCP client to launch:
 
 ```bash
 go run . mcp
@@ -65,6 +65,81 @@ By default, MCP tools can read game state and execute trades in the active live 
 ```bash
 go run . mcp --read-only
 ```
+
+### MCP Client Examples
+
+Run these from the tradez repository root unless the example shows an explicit path. If you build a binary first, replace `go run . mcp` with `/absolute/path/to/tradez/tradez mcp`.
+
+#### Claude Code
+
+For a project-scoped server that is shared through `.mcp.json`:
+
+```bash
+claude mcp add --transport stdio --scope project tradez -- go run . mcp
+```
+
+Read-only variant:
+
+```bash
+claude mcp add --transport stdio --scope project tradez -- go run . mcp --read-only
+```
+
+Equivalent `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "tradez": {
+      "command": "go",
+      "args": ["run", ".", "mcp"]
+    }
+  }
+}
+```
+
+For read-only JSON configuration, add `"--read-only"` to the `args` array.
+
+After starting Claude Code in this repo, run `/mcp` to confirm the `tradez` server connected. Project-scoped MCP servers may require approval the first time Claude Code sees the `.mcp.json` file.
+
+#### Codex CLI
+
+For a user-level Codex MCP entry:
+
+```bash
+codex mcp add tradez -- go run . mcp
+```
+
+Read-only variant:
+
+```bash
+codex mcp add tradez -- go run . mcp --read-only
+```
+
+For project-local configuration, create or edit `.codex/config.toml`:
+
+```toml
+[mcp_servers.tradez]
+command = "go"
+args = ["run", ".", "mcp"]
+cwd = ".."
+```
+
+Use this read-only variant if you want Codex to inspect the market without placing or cancelling trades:
+
+```toml
+[mcp_servers.tradez]
+command = "go"
+args = ["run", ".", "mcp", "--read-only"]
+cwd = ".."
+```
+
+Start Codex from the repo and run `/mcp` to confirm the server is active. Codex loads project-scoped `.codex/config.toml` only for trusted projects.
+
+Once connected, try prompts like:
+
+- `Use tradez to summarize the current market and my portfolio.`
+- `Review recent news and explain which sectors are being pushed up or down.`
+- `Propose a trade plan, but ask before placing any orders.`
 
 ### MCP Features
 
