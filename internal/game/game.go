@@ -2,8 +2,10 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"tradez/internal/market"
 )
+
 
 type Difficulty int
 
@@ -95,17 +97,35 @@ func (p *Position) LongPnL(price float64) float64 {
 	return float64(p.Shares) * (price - p.AvgCost)
 }
 
+const (
+	MaintenanceMarginRatio = 0.25 // margin call below 25% of short exposure
+	MarginWarnRatio        = 0.50 // warning below 50% of short exposure
+	MarginCallGrace        = 15   // ticks before forced cover (~30 seconds)
+)
+
+// MarginStatus describes the account's current margin health.
+type MarginStatus struct {
+	ShortExposure float64 // Σ(ShortShares × currentPrice)
+	AccountEquity float64 // total portfolio value
+	Ratio         float64 // AccountEquity / ShortExposure (1.0 = 100%)
+	HasShorts     bool
+	IsWarning     bool // ratio < MarginWarnRatio
+	IsCall        bool // ratio < MaintenanceMarginRatio
+}
+
 type Game struct {
-	Market       *market.Market
-	Cash         float64
-	StartingCash float64
-	Positions    map[string]*Position
-	Orders       []*Order
-	nextOrderID  int
-	Puts         []*PutContract
-	nextPutID    int
-	Difficulty   Difficulty
-	Messages     []string
+	Market          *market.Market
+	Cash            float64
+	StartingCash    float64
+	Positions       map[string]*Position
+	Orders          []*Order
+	nextOrderID     int
+	Puts            []*PutContract
+	nextPutID       int
+	Difficulty      Difficulty
+	Messages        []string
+	MarginCallActive bool
+	MarginCallTicks  int // ticks remaining before forced cover
 }
 
 func New(m *market.Market) *Game {
@@ -336,6 +356,99 @@ func (g *Game) PortfolioValue() float64 {
 		total += put.CurrentValue(s.Price, iv)
 	}
 	return total
+}
+
+// GetMarginStatus returns the current account-level margin health.
+func (g *Game) GetMarginStatus() MarginStatus {
+	var exposure float64
+	for symbol, pos := range g.Positions {
+		if pos.ShortShares == 0 {
+			continue
+		}
+		s := g.Market.GetStock(symbol)
+		if s == nil {
+			continue
+		}
+		exposure += float64(pos.ShortShares) * s.Price
+	}
+	if exposure == 0 {
+		return MarginStatus{}
+	}
+	equity := g.PortfolioValue()
+	ratio := equity / exposure
+	return MarginStatus{
+		ShortExposure: exposure,
+		AccountEquity: equity,
+		Ratio:         ratio,
+		HasShorts:     true,
+		IsWarning:     ratio < MarginWarnRatio,
+		IsCall:        ratio < MaintenanceMarginRatio,
+	}
+}
+
+// CheckMargin evaluates margin health each tick.
+// It issues a call when equity drops below the maintenance threshold, counts
+// down the grace period, and force-covers all shorts when time runs out.
+// Returns any messages to surface to the player.
+func (g *Game) CheckMargin() []string {
+	ms := g.GetMarginStatus()
+	if !ms.HasShorts || !ms.IsCall {
+		if g.MarginCallActive {
+			g.MarginCallActive = false
+			g.MarginCallTicks = 0
+			return []string{"Margin call cleared — account equity restored."}
+		}
+		return nil
+	}
+
+	if !g.MarginCallActive {
+		g.MarginCallActive = true
+		g.MarginCallTicks = MarginCallGrace
+		g.addMsg(fmt.Sprintf(
+			"⚠ MARGIN CALL: equity $%.0f below %.0f%% of $%.0f short exposure. Cover shorts or sell holdings within %d ticks.",
+			ms.AccountEquity, MaintenanceMarginRatio*100, ms.ShortExposure, MarginCallGrace,
+		))
+		return []string{fmt.Sprintf("MARGIN CALL — %d ticks to act", MarginCallGrace)}
+	}
+
+	g.MarginCallTicks--
+	if g.MarginCallTicks <= 0 {
+		msgs := g.forceCoverAll()
+		g.MarginCallActive = false
+		g.MarginCallTicks = 0
+		return msgs
+	}
+	return nil
+}
+
+// forceCoverAll closes every short position at market price.
+func (g *Game) forceCoverAll() []string {
+	var msgs []string
+	for symbol, pos := range g.Positions {
+		if pos.ShortShares == 0 {
+			continue
+		}
+		s := g.Market.GetStock(symbol)
+		if s == nil {
+			continue
+		}
+		pnl := float64(pos.ShortShares) * (pos.ShortAvg - s.Price)
+		margin := pos.ShortAvg * float64(pos.ShortShares) * 0.5
+		g.Cash += margin + pnl
+		g.nextOrderID++
+		g.Orders = append(g.Orders, &Order{
+			ID: g.nextOrderID, Symbol: symbol, Type: OrderShortCover,
+			Shares: pos.ShortShares, FilledAt: s.Price, Status: OrderFilled,
+		})
+		msgs = append(msgs, fmt.Sprintf("FORCED COVER: %d %s @ $%.2f (P&L: %s$%.2f)",
+			pos.ShortShares, symbol, s.Price, signStr(pnl), math.Abs(pnl)))
+		g.addMsg(msgs[len(msgs)-1])
+		pos.ShortShares = 0
+		pos.ShortAvg = 0
+	}
+	g.addMsg("⚠ All short positions force-covered by margin call.")
+	msgs = append(msgs, "All shorts force-covered.")
+	return msgs
 }
 
 func (g *Game) PendingOrders() []*Order {

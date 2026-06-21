@@ -214,6 +214,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newEvent := m.g.Market.Tick()
 			m.g.ProcessLimitOrders()
 			m.g.ProcessPuts()
+			for _, msg := range m.g.CheckMargin() {
+				_ = msg // surfaced via g.Messages; flash on market screen
+			}
 			m.checkNewLimitFills()
 			m.refreshStocks()
 
@@ -889,7 +892,9 @@ func (m Model) viewMarket() string {
 
 	nextNews := m.g.Market.NextNewsIn()
 	var rightStatus string
-	if m.okMsg != "" {
+	if m.g.MarginCallActive {
+		rightStatus = styleError.Render(fmt.Sprintf("⚠ MARGIN CALL — %d ticks to act", m.g.MarginCallTicks))
+	} else if m.okMsg != "" {
 		rightStatus = styleOk.Render(m.okMsg)
 	} else if m.errMsg != "" {
 		rightStatus = styleError.Render(m.errMsg)
@@ -1832,6 +1837,8 @@ func (m Model) viewPortfolio() string {
 		styleNeutral.Render("  P&L: ") + colorForChange(totalPnL).Render(fmt.Sprintf("%s$%s", signStr(totalPnL), commaf(math.Abs(totalPnL)))) +
 		styleNeutral.Render("  Cash: ") + stylePositive.Render(fmt.Sprintf("$%s", commaf(m.g.Cash)))
 
+	marginLine := m.marginHealthLine()
+
 	colHeader := padR("SYMBOL", 8) + padR("SHARES", 8) + padR("AVG COST", 12) +
 		padR("CURR PRICE", 12) + padR("MKT VALUE", 14) + padR("LONG P&L", 14) +
 		padR("SHORT", 8) + padR("SHORT AVG", 12) + padR("SHORT P&L", 12)
@@ -1924,7 +1931,7 @@ func (m Model) viewPortfolio() string {
 		statusLine = "\n" + styleError.Render("⚠ "+m.errMsg)
 	}
 
-	return header + "\n" + div + "\n" +
+	return header + "\n" + marginLine + div + "\n" +
 		lipgloss.NewStyle().Bold(true).Foreground(colorGray).Render(" "+colHeader) + "\n" +
 		div + "\n" + rows.String() + putsSection.String() + div + statusLine + "\n" + keys
 }
@@ -2353,4 +2360,50 @@ func styleYellowStr(s string) string {
 
 func styleAccentStr(s string) string {
 	return lipgloss.NewStyle().Foreground(colorAccent).Render(s)
+}
+
+// marginHealthLine renders a one-line margin health bar for the portfolio
+// screen. Returns an empty string when there are no short positions.
+func (m Model) marginHealthLine() string {
+	if m.g == nil {
+		return ""
+	}
+	ms := m.g.GetMarginStatus()
+	if !ms.HasShorts {
+		return ""
+	}
+
+	const barW = 24
+	// Scale: full bar = 100% ratio (equity equals exposure).
+	// Maintenance threshold is 25%, warning at 50%.
+	filled := int(ms.Ratio * float64(barW))
+	if filled > barW {
+		filled = barW
+	}
+	if filled < 0 {
+		filled = 0
+	}
+
+	var barStyle lipgloss.Style
+	var label string
+	switch {
+	case ms.IsCall:
+		barStyle = lipgloss.NewStyle().Foreground(colorRed)
+		label = styleError.Render(fmt.Sprintf(" ⚠ MARGIN CALL — %d ticks remaining", m.g.MarginCallTicks))
+	case ms.IsWarning:
+		barStyle = lipgloss.NewStyle().Foreground(colorYellow)
+		label = lipgloss.NewStyle().Foreground(colorYellow).Render(" ▲ WARNING")
+	default:
+		barStyle = lipgloss.NewStyle().Foreground(colorGreen)
+		label = ""
+	}
+
+	bar := barStyle.Render(strings.Repeat("█", filled)) +
+		styleNeutral.Render(strings.Repeat("░", barW-filled))
+
+	pct := int(ms.Ratio * 100)
+	info := fmt.Sprintf("  %d%%  equity $%s / exposure $%s  [call at 25%%]",
+		pct, commaf(ms.AccountEquity), commaf(ms.ShortExposure))
+
+	return " " + styleNeutral.Render("MARGIN") + " " + bar + styleNeutral.Render(info) + label + "\n"
 }

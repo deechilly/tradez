@@ -24,19 +24,21 @@ type SaveSlot struct {
 }
 
 type gameState struct {
-	Version        int                  `json:"version"`
-	SavedAt        time.Time            `json:"saved_at"`
-	Cash           float64              `json:"cash"`
-	StartingCash   float64              `json:"starting_cash"`
-	PortfolioValue float64              `json:"portfolio_value"`
-	Difficulty     Difficulty           `json:"difficulty"`
-	Positions      map[string]*Position `json:"positions"`
-	Orders         []*Order             `json:"orders"`
-	NextOrderID    int                  `json:"next_order_id"`
-	Puts           []*PutContract       `json:"puts"`
-	NextPutID      int                  `json:"next_put_id"`
-	Messages       []string             `json:"messages"`
-	Market         market.MarketState   `json:"market"`
+	Version          int                  `json:"version"`
+	SavedAt          time.Time            `json:"saved_at"`
+	Cash             float64              `json:"cash"`
+	StartingCash     float64              `json:"starting_cash"`
+	PortfolioValue   float64              `json:"portfolio_value"`
+	Difficulty       Difficulty           `json:"difficulty"`
+	Positions        map[string]*Position `json:"positions"`
+	Orders           []*Order             `json:"orders"`
+	NextOrderID      int                  `json:"next_order_id"`
+	Puts             []*PutContract       `json:"puts"`
+	NextPutID        int                  `json:"next_put_id"`
+	Messages         []string             `json:"messages"`
+	Market           market.MarketState   `json:"market"`
+	MarginCallActive bool                 `json:"margin_call_active"`
+	MarginCallTicks  int                  `json:"margin_call_ticks"`
 }
 
 func savePath(slot int) (string, error) {
@@ -82,19 +84,21 @@ func Save(g *Game, slot int) error {
 		return err
 	}
 	gs := gameState{
-		Version:        saveVersion,
-		SavedAt:        time.Now(),
-		Cash:           g.Cash,
-		StartingCash:   g.StartingCash,
-		PortfolioValue: g.PortfolioValue(),
-		Difficulty:     g.Difficulty,
-		Positions:      g.Positions,
-		Orders:         g.Orders,
-		NextOrderID:    g.nextOrderID,
-		Puts:           g.Puts,
-		NextPutID:      g.nextPutID,
-		Messages:       g.Messages,
-		Market:         g.Market.Export(),
+		Version:          saveVersion,
+		SavedAt:          time.Now(),
+		Cash:             g.Cash,
+		StartingCash:     g.StartingCash,
+		PortfolioValue:   g.PortfolioValue(),
+		Difficulty:       g.Difficulty,
+		Positions:        g.Positions,
+		Orders:           g.Orders,
+		NextOrderID:      g.nextOrderID,
+		Puts:             g.Puts,
+		NextPutID:        g.nextPutID,
+		Messages:         g.Messages,
+		Market:           g.Market.Export(),
+		MarginCallActive: g.MarginCallActive,
+		MarginCallTicks:  g.MarginCallTicks,
 	}
 	data, err := json.Marshal(gs)
 	if err != nil {
@@ -119,16 +123,18 @@ func Load(slot int) (*Game, error) {
 	}
 	m := market.NewFromState(gs.Market)
 	g := &Game{
-		Market:       m,
-		Cash:         gs.Cash,
-		StartingCash: gs.StartingCash,
-		Difficulty:   gs.Difficulty,
-		Positions:    gs.Positions,
-		Orders:       gs.Orders,
-		nextOrderID:  gs.NextOrderID,
-		Puts:         gs.Puts,
-		nextPutID:    gs.NextPutID,
-		Messages:     gs.Messages,
+		Market:           m,
+		Cash:             gs.Cash,
+		StartingCash:     gs.StartingCash,
+		Difficulty:       gs.Difficulty,
+		Positions:        gs.Positions,
+		Orders:           gs.Orders,
+		nextOrderID:      gs.NextOrderID,
+		Puts:             gs.Puts,
+		nextPutID:        gs.NextPutID,
+		Messages:         gs.Messages,
+		MarginCallActive: gs.MarginCallActive,
+		MarginCallTicks:  gs.MarginCallTicks,
 	}
 	if g.Positions == nil {
 		g.Positions = make(map[string]*Position)
