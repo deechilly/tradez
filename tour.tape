@@ -1,7 +1,7 @@
 Output recording.gif
 
 Set FontSize 13
-Set Width 1200
+Set Width 1500
 Set Height 675
 Set Framerate 20
 Set PlaybackSpeed 1.0
@@ -99,7 +99,7 @@ Sleep 500ms
 Type "?"
 Sleep 500ms
 
-Down
+PageDown
 Sleep 1s
 
 Down
@@ -108,7 +108,7 @@ Sleep 1s
 Down
 Sleep 1s
 
-Down
+PageDown
 Sleep 1s
 
 Escape
