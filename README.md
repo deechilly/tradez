@@ -1,5 +1,7 @@
 # tradez
 
+[![Test](https://github.com/deechilly/tradez/actions/workflows/test.yml/badge.svg)](https://github.com/deechilly/tradez/actions/workflows/test.yml)
+
 A terminal-based stock trading simulator built in Go. Watch live markets tick, react to breaking news, build a portfolio, and try to turn seed money into a fortune — all from your terminal.
 
 ```
