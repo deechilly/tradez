@@ -42,143 +42,6 @@ Requires the Go version declared in `go.mod`.
 
 ---
 
-## MCP Integration
-
-tradez can expose a live running game to MCP-compatible AI tools.
-
-Start the TUI first:
-
-```bash
-go run .
-```
-
-Load or start a save slot so there is an active live game. Then configure your MCP client to launch:
-
-```bash
-go run . mcp
-```
-
-The MCP server uses stdio, so the AI client owns the MCP process lifecycle. The running TUI exposes a private bridge on `127.0.0.1` and writes a token-protected descriptor to `~/.tradez/bridge/current.json`. If no live TUI is running, `tradez mcp` exits with a clear error.
-
-By default, MCP tools can read game state and execute trades in the active live game. For read-only access:
-
-```bash
-go run . mcp --read-only
-```
-
-### MCP Client Examples
-
-Run these from the tradez repository root unless the example shows an explicit path. If you build a binary first, replace `go run . mcp` with `/absolute/path/to/tradez/tradez mcp`.
-
-#### Claude Code
-
-For a project-scoped server that is shared through `.mcp.json`:
-
-```bash
-claude mcp add --transport stdio --scope project tradez -- go run . mcp
-```
-
-Read-only variant:
-
-```bash
-claude mcp add --transport stdio --scope project tradez -- go run . mcp --read-only
-```
-
-Equivalent `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "tradez": {
-      "command": "go",
-      "args": ["run", ".", "mcp"]
-    }
-  }
-}
-```
-
-For read-only JSON configuration, add `"--read-only"` to the `args` array.
-
-After starting Claude Code in this repo, run `/mcp` to confirm the `tradez` server connected. Project-scoped MCP servers may require approval the first time Claude Code sees the `.mcp.json` file.
-
-#### Codex CLI
-
-For a user-level Codex MCP entry:
-
-```bash
-codex mcp add tradez -- go run . mcp
-```
-
-Read-only variant:
-
-```bash
-codex mcp add tradez -- go run . mcp --read-only
-```
-
-For project-local configuration, create or edit `.codex/config.toml`:
-
-```toml
-[mcp_servers.tradez]
-command = "go"
-args = ["run", ".", "mcp"]
-cwd = ".."
-```
-
-Use this read-only variant if you want Codex to inspect the market without placing or cancelling trades:
-
-```toml
-[mcp_servers.tradez]
-command = "go"
-args = ["run", ".", "mcp", "--read-only"]
-cwd = ".."
-```
-
-Start Codex from the repo and run `/mcp` to confirm the server is active. Codex loads project-scoped `.codex/config.toml` only for trusted projects.
-
-Once connected, try prompts like:
-
-- `Use tradez to summarize the current market and my portfolio.`
-- `Review recent news and explain which sectors are being pushed up or down.`
-- `Propose a trade plan, but ask before placing any orders.`
-
-### MCP Features
-
-Resources:
-
-- `tradez://game/summary`
-- `tradez://market/stocks`
-- `tradez://market/news`
-- `tradez://market/influences`
-- `tradez://portfolio`
-- `tradez://orders`
-- `tradez://stock/{symbol}`
-
-Read tools:
-
-- `get_game_state`
-- `list_stocks`
-- `get_stock`
-- `get_news`
-- `get_portfolio`
-- `get_orders`
-
-Mutating tools, omitted by `--read-only`:
-
-- `place_order`
-- `cancel_order`
-- `save_game`
-
-Prompts:
-
-- `analyze_market`
-- `explain_news_impact`
-- `review_portfolio`
-- `propose_trade_plan`
-
-MCP-triggered trades are routed through the TUI event loop, so portfolio state, order history, status messages, and achievement checks update the same way as keyboard-driven trades.
-
----
-
 ## Save Slots
 
 tradez opens on a **slot selection screen** with three save slots labelled Game 1, Game 2, and Game 3. Each slot stores the complete game state: your portfolio, all open and filled orders, the current news cycle, active market influences, and the timer to the next news event.
@@ -514,6 +377,143 @@ A confidence percentage and suggested entry price, stop-loss, and price target a
 - **The sparkline in the market table is your best friend** for spotting micro-trends without opening each stock — especially useful when capital is tight.
 
 ---
+
+## MCP Integration
+
+tradez can expose a live running game to MCP-compatible AI tools.
+
+Start the TUI first:
+
+```bash
+go run .
+```
+
+Load or start a save slot so there is an active live game. Then configure your MCP client to launch:
+
+```bash
+go run . mcp
+```
+
+The MCP server uses stdio, so the AI client owns the MCP process lifecycle. The running TUI exposes a private bridge on `127.0.0.1` and writes a token-protected descriptor to `~/.tradez/bridge/current.json`. If no live TUI is running, `tradez mcp` exits with a clear error.
+
+By default, MCP tools can read game state and execute trades in the active live game. For read-only access:
+
+```bash
+go run . mcp --read-only
+```
+
+### MCP Client Examples
+
+Run these from the tradez repository root unless the example shows an explicit path. If you build a binary first, replace `go run . mcp` with `/absolute/path/to/tradez/tradez mcp`.
+
+#### Claude Code
+
+For a project-scoped server that is shared through `.mcp.json`:
+
+```bash
+claude mcp add --transport stdio --scope project tradez -- go run . mcp
+```
+
+Read-only variant:
+
+```bash
+claude mcp add --transport stdio --scope project tradez -- go run . mcp --read-only
+```
+
+Equivalent `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "tradez": {
+      "command": "go",
+      "args": ["run", ".", "mcp"]
+    }
+  }
+}
+```
+
+For read-only JSON configuration, add `"--read-only"` to the `args` array.
+
+After starting Claude Code in this repo, run `/mcp` to confirm the `tradez` server connected. Project-scoped MCP servers may require approval the first time Claude Code sees the `.mcp.json` file.
+
+#### Codex CLI
+
+For a user-level Codex MCP entry:
+
+```bash
+codex mcp add tradez -- go run . mcp
+```
+
+Read-only variant:
+
+```bash
+codex mcp add tradez -- go run . mcp --read-only
+```
+
+For project-local configuration, create or edit `.codex/config.toml`:
+
+```toml
+[mcp_servers.tradez]
+command = "go"
+args = ["run", ".", "mcp"]
+cwd = ".."
+```
+
+Use this read-only variant if you want Codex to inspect the market without placing or cancelling trades:
+
+```toml
+[mcp_servers.tradez]
+command = "go"
+args = ["run", ".", "mcp", "--read-only"]
+cwd = ".."
+```
+
+Start Codex from the repo and run `/mcp` to confirm the server is active. Codex loads project-scoped `.codex/config.toml` only for trusted projects.
+
+Once connected, try prompts like:
+
+- `Use tradez to summarize the current market and my portfolio.`
+- `Review recent news and explain which sectors are being pushed up or down.`
+- `Propose a trade plan, but ask before placing any orders.`
+
+### MCP Features
+
+Resources:
+
+- `tradez://game/summary`
+- `tradez://market/stocks`
+- `tradez://market/news`
+- `tradez://market/influences`
+- `tradez://portfolio`
+- `tradez://orders`
+- `tradez://stock/{symbol}`
+
+Read tools:
+
+- `get_game_state`
+- `list_stocks`
+- `get_stock`
+- `get_news`
+- `get_portfolio`
+- `get_orders`
+
+Mutating tools, omitted by `--read-only`:
+
+- `place_order`
+- `cancel_order`
+- `save_game`
+
+Prompts:
+
+- `analyze_market`
+- `explain_news_impact`
+- `review_portfolio`
+- `propose_trade_plan`
+
+MCP-triggered trades are routed through the TUI event loop, so portfolio state, order history, status messages, and achievement checks update the same way as keyboard-driven trades.
+
+--- 
 
 ## Architecture
 
