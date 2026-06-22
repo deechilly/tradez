@@ -31,6 +31,7 @@ const (
 	screenTrade
 	screenAchievements
 	screenGlossary
+	screenBust
 )
 
 type tradeMode int
@@ -115,6 +116,9 @@ type Model struct {
 	achScroll         int
 	glossaryScroll    int
 	prevScreen        screen
+
+	bankrupt   bool
+	bustCursor int // 0 = keep watching, 1 = return to title
 }
 
 type Option func(*Model)
@@ -284,7 +288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ? opens glossary from any game screen; esc returns to wherever you were.
-	if msg.String() == "?" && m.screen != screenGlossary && m.screen != screenSlotSelect && m.screen != screenMenu && m.screen != screenCapital {
+	if msg.String() == "?" && m.screen != screenGlossary && m.screen != screenSlotSelect && m.screen != screenMenu && m.screen != screenCapital && m.screen != screenBust {
 		m.prevScreen = m.screen
 		m.glossaryScroll = 0
 		m.screen = screenGlossary
@@ -311,6 +315,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAchievementsKey(msg)
 	case screenGlossary:
 		return m.handleGlossaryKey(msg)
+	case screenBust:
+		return m.handleBustKey(msg)
 	}
 	return m, nil
 }
@@ -449,6 +455,11 @@ func (m Model) handleStockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) openTrade(mode tradeMode) {
+	if m.bankrupt {
+		m.errMsg = "Bankrupt — account closed, no trades possible"
+		m.msgTimer = 3
+		return
+	}
 	m.tradeMode = mode
 	m.inputShares.Reset()
 	m.inputPrice.Reset()
@@ -707,6 +718,8 @@ func (m Model) View() string {
 		return m.viewAchievements()
 	case screenGlossary:
 		return m.viewGlossary()
+	case screenBust:
+		return m.viewBust()
 	}
 	return ""
 }
@@ -2432,4 +2445,71 @@ func (m Model) marginHealthLine() string {
 		pct, commaf(ms.AccountEquity), commaf(ms.ShortExposure))
 
 	return " " + styleNeutral.Render("MARGIN") + " " + bar + styleNeutral.Render(info) + label + "\n"
+}
+
+func (m Model) handleBustKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.bustCursor > 0 {
+			m.bustCursor--
+		}
+	case "down", "j":
+		if m.bustCursor < 1 {
+			m.bustCursor++
+		}
+	case "enter":
+		if m.bustCursor == 0 {
+			// spectator mode — return to market view, trading blocked by m.bankrupt
+			m.screen = screenMarket
+		} else {
+			m.g = nil
+			m.bankrupt = false
+			m.bustCursor = 0
+			m.loadSlotInfos()
+			m.screen = screenSlotSelect
+		}
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) viewBust() string {
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+
+	pv := m.g.PortfolioValue()
+	sc := m.g.StartingCash
+	lossPct := (pv - sc) / sc * 100
+
+	header := lipgloss.NewStyle().Bold(true).Foreground(colorRed).Render("YOU LOSE")
+	reason := styleNeutral.Render("Your portfolio collapsed below 5% of your starting capital.")
+
+	stats := fmt.Sprintf("  Final value:    %s\n  Starting:       %s\n  Total loss:     %.1f%%",
+		styleNegative.Render("$"+commaf(pv)),
+		styleNeutral.Render("$"+commaf(sc)),
+		lossPct,
+	)
+
+	choices := []string{"Keep watching the market", "Return to title screen"}
+	var optLines []string
+	for i, opt := range choices {
+		if i == m.bustCursor {
+			optLines = append(optLines, styleError.Render("▶ ")+styleWhiteStr(opt))
+		} else {
+			optLines = append(optLines, styleNeutral.Render("  "+opt))
+		}
+	}
+
+	content := header + "\n\n" +
+		reason + "\n\n" +
+		stats + "\n\n" +
+		styleNeutral.Render("  ───────────────────────────────") + "\n\n" +
+		strings.Join(optLines, "\n") + "\n\n" +
+		styleHint.Render("  ↑↓ navigate   enter select")
+
+	return lipgloss.Place(w, m.height, lipgloss.Center, lipgloss.Center,
+		styleBorder.Padding(2, 4).Render(content))
 }

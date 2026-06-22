@@ -24,7 +24,7 @@ var glossarySections = []glossarySection{
 		entries: []glossaryEntry{
 			{
 				"Market Buy",
-				"Purchase shares immediately at the current price. Fast and certain, but you get whatever the market is asking right now — which may have moved since you last looked.",
+				"Purchase shares immediately at the current price. Fast and certain, but you get whatever the market is asking right now — which may have moved since you last looked. If you already hold a short position on the same stock, the buy nets against it first — covering the short before adding any remainder as long shares.",
 			},
 			{
 				"Market Sell",
@@ -40,7 +40,7 @@ var glossarySections = []glossarySection{
 			},
 			{
 				"Short Sell",
-				"Borrow shares and sell them immediately, betting the price will fall. If the price drops, you buy them back cheaper (cover) and pocket the difference. Risk: if the stock rises, losses are unlimited — there is no ceiling on how high a price can go. Requires 50% of the position value as margin collateral.",
+				"Borrow shares and sell them immediately, betting the price will fall. If the price drops, you buy them back cheaper (cover) and pocket the difference. Risk: if the stock rises, losses are unlimited — there is no ceiling on how high a price can go. Requires 50% of the position value as margin collateral. If you already hold a long position on the same stock, the short nets against it first — selling the long before borrowing any remainder.",
 			},
 			{
 				"Cover Short",
@@ -168,6 +168,10 @@ var glossarySections = []glossarySection{
 			{
 				"Margin",
 				"Cash or collateral pledged against a leveraged position. In tradez, short selling requires 50% margin: if you short 100 shares at $50, you post $2,500 as collateral. The margin is returned when you cover; profit or loss is added on top. If you cover at $40, you recover $2,500 margin plus $1,000 profit (100 × $10 gain).",
+			},
+			{
+				"Margin Call",
+				"A forced demand to restore collateral when your account equity falls too low relative to your short exposure. In tradez, a margin call fires when your total portfolio value drops below 25% of the total current market value of your short positions. A warning appears at 50%. Once a margin call is active, you have 15 ticks (~30 seconds) to restore the ratio — cover shorts, sell longs, or both. If the timer expires, all shorts are force-covered at market price. If the forced cover leaves your portfolio below 5% of starting capital, the game ends.",
 			},
 			{
 				"Position Sizing",

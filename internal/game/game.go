@@ -147,25 +147,60 @@ func (g *Game) BuyMarket(symbol string, shares int) error {
 	if s == nil {
 		return fmt.Errorf("unknown symbol %s", symbol)
 	}
-	cost := s.Price * float64(shares)
-	if cost > g.Cash {
-		return fmt.Errorf("insufficient funds: need $%.2f, have $%.2f", cost, g.Cash)
-	}
-	g.Cash -= cost
 
 	pos := g.getOrCreatePos(symbol)
-	total := float64(pos.Shares)*pos.AvgCost + cost
-	pos.Shares += shares
-	if pos.Shares > 0 {
-		pos.AvgCost = total / float64(pos.Shares)
+
+	// Net against any open short first, then buy the remainder long.
+	coverShares := min(shares, pos.ShortShares)
+	buyShares := shares - coverShares
+
+	if buyShares > 0 {
+		// Cash freed by covering factors into affordability of the long portion.
+		var coverProceeds float64
+		if coverShares > 0 {
+			coverProceeds = pos.ShortAvg*float64(coverShares)*0.5 +
+				float64(coverShares)*(pos.ShortAvg-s.Price)
+		}
+		longCost := s.Price * float64(buyShares)
+		available := g.Cash + coverProceeds
+		if longCost > available {
+			return fmt.Errorf("insufficient funds: need $%.2f, have $%.2f", longCost, math.Max(0, available))
+		}
 	}
 
-	g.nextOrderID++
-	g.Orders = append(g.Orders, &Order{
-		ID: g.nextOrderID, Symbol: symbol, Type: OrderMarketBuy,
-		Shares: shares, FilledAt: s.Price, Status: OrderFilled,
-	})
-	g.addMsg(fmt.Sprintf("Bought %d shares of %s @ $%.2f", shares, symbol, s.Price))
+	if coverShares > 0 {
+		pnl := float64(coverShares) * (pos.ShortAvg - s.Price)
+		margin := pos.ShortAvg * float64(coverShares) * 0.5
+		g.Cash += margin + pnl
+		pos.ShortShares -= coverShares
+		if pos.ShortShares == 0 {
+			pos.ShortAvg = 0
+		}
+		g.nextOrderID++
+		g.Orders = append(g.Orders, &Order{
+			ID: g.nextOrderID, Symbol: symbol, Type: OrderShortCover,
+			Shares: coverShares, FilledAt: s.Price, Status: OrderFilled,
+		})
+		g.addMsg(fmt.Sprintf("Covered %d short %s @ $%.2f (P&L: %s$%.2f)",
+			coverShares, symbol, s.Price, signStr(pnl), math.Abs(pnl)))
+	}
+
+	if buyShares > 0 {
+		cost := s.Price * float64(buyShares)
+		g.Cash -= cost
+		total := float64(pos.Shares)*pos.AvgCost + cost
+		pos.Shares += buyShares
+		if pos.Shares > 0 {
+			pos.AvgCost = total / float64(pos.Shares)
+		}
+		g.nextOrderID++
+		g.Orders = append(g.Orders, &Order{
+			ID: g.nextOrderID, Symbol: symbol, Type: OrderMarketBuy,
+			Shares: buyShares, FilledAt: s.Price, Status: OrderFilled,
+		})
+		g.addMsg(fmt.Sprintf("Bought %d shares of %s @ $%.2f", buyShares, symbol, s.Price))
+	}
+
 	return nil
 }
 
@@ -185,6 +220,9 @@ func (g *Game) SellMarket(symbol string, shares int) error {
 	proceeds := s.Price * float64(shares)
 	g.Cash += proceeds
 	pos.Shares -= shares
+	if pos.Shares == 0 {
+		pos.AvgCost = 0
+	}
 
 	g.nextOrderID++
 	g.Orders = append(g.Orders, &Order{
@@ -238,23 +276,52 @@ func (g *Game) ShortSell(symbol string, shares int) error {
 	if s == nil {
 		return fmt.Errorf("unknown symbol %s", symbol)
 	}
-	margin := s.Price * float64(shares) * 0.5
-	if margin > g.Cash {
-		return fmt.Errorf("insufficient margin: need $%.2f (50%% of position)", margin)
-	}
-	g.Cash -= margin
+
 	pos := g.getOrCreatePos(symbol)
-	total := float64(pos.ShortShares)*pos.ShortAvg + s.Price*float64(shares)
-	pos.ShortShares += shares
-	if pos.ShortShares > 0 {
-		pos.ShortAvg = total / float64(pos.ShortShares)
+
+	// Net against any open long first, then short the remainder.
+	sellShares := min(shares, pos.Shares)
+	shortShares := shares - sellShares
+
+	if shortShares > 0 {
+		// Proceeds from selling longs factor into margin affordability.
+		sellProceeds := s.Price * float64(sellShares)
+		margin := s.Price * float64(shortShares) * 0.5
+		if margin > g.Cash+sellProceeds {
+			return fmt.Errorf("insufficient margin: need $%.2f (50%% of position)", margin)
+		}
 	}
-	g.nextOrderID++
-	g.Orders = append(g.Orders, &Order{
-		ID: g.nextOrderID, Symbol: symbol, Type: OrderShortSell,
-		Shares: shares, FilledAt: s.Price, Status: OrderFilled,
-	})
-	g.addMsg(fmt.Sprintf("Short sold %d shares of %s @ $%.2f", shares, symbol, s.Price))
+
+	if sellShares > 0 {
+		proceeds := s.Price * float64(sellShares)
+		g.Cash += proceeds
+		pos.Shares -= sellShares
+		if pos.Shares == 0 {
+			pos.AvgCost = 0
+		}
+		g.nextOrderID++
+		g.Orders = append(g.Orders, &Order{
+			ID: g.nextOrderID, Symbol: symbol, Type: OrderMarketSell,
+			Shares: sellShares, FilledAt: s.Price, Status: OrderFilled,
+		})
+		g.addMsg(fmt.Sprintf("Sold %d shares of %s @ $%.2f", sellShares, symbol, s.Price))
+	}
+
+	if shortShares > 0 {
+		margin := s.Price * float64(shortShares) * 0.5
+		g.Cash -= margin
+		total := float64(pos.ShortShares)*pos.ShortAvg + s.Price*float64(shortShares)
+		pos.ShortShares += shortShares
+		if pos.ShortShares > 0 {
+			pos.ShortAvg = total / float64(pos.ShortShares)
+		}
+		g.nextOrderID++
+		g.Orders = append(g.Orders, &Order{
+			ID: g.nextOrderID, Symbol: symbol, Type: OrderShortSell,
+			Shares: shortShares, FilledAt: s.Price, Status: OrderFilled,
+		})
+		g.addMsg(fmt.Sprintf("Short sold %d shares of %s @ $%.2f", shortShares, symbol, s.Price))
+	}
 	return nil
 }
 
@@ -275,6 +342,9 @@ func (g *Game) CoverShort(symbol string, shares int) error {
 	margin := pos.ShortAvg * float64(shares) * 0.5
 	g.Cash += margin + pnl
 	pos.ShortShares -= shares
+	if pos.ShortShares == 0 {
+		pos.ShortAvg = 0
+	}
 	g.nextOrderID++
 	g.Orders = append(g.Orders, &Order{
 		ID: g.nextOrderID, Symbol: symbol, Type: OrderShortCover,

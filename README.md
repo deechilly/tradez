@@ -221,7 +221,7 @@ Press `a` from the Market screen to open the Achievements screen. Unlocks persis
 ### Order Types
 
 #### Market Buy — `b`
-Buys shares immediately at the current price. Cost is deducted from cash instantly.
+Buys shares immediately at the current price. Cost is deducted from cash instantly. If you already hold a short position on the same stock, the buy nets against it first — covering the short before adding any remainder as long shares.
 
 #### Market Sell — `s`
 Sells shares you own at the current price. Proceeds are added to cash instantly.
@@ -233,7 +233,7 @@ Places a buy order that only fills when the price drops to or below your specifi
 Places a sell order that only fills when the price rises to or above your specified limit. Your shares are reserved when you place the order and returned if you cancel.
 
 #### Short Sell — `h`
-Bets that a stock will fall. You borrow and immediately sell shares you don't own. **50% margin** of the position value is reserved from your cash as collateral. If the price drops, you profit when you cover. If the price rises, your loss grows.
+Bets that a stock will fall. You borrow and immediately sell shares you don't own. **50% margin** of the position value is reserved from your cash as collateral. If the price drops, you profit when you cover. If the price rises, your loss grows. If you already hold a long position on the same stock, the short nets against it first — selling the long before borrowing any remainder.
 
 #### Cover Short — `c`
 Closes a short position. You buy shares at the current price to return the borrowed stock. Your margin collateral is returned plus or minus the P&L.
@@ -263,6 +263,8 @@ When you hold short positions, the game tracks your **account equity** against y
 When equity falls below 25% of short exposure, a margin call is issued. You have **15 ticks (~30 seconds)** to restore your margin — cover your shorts, sell long positions, or do both. The margin health bar at the top of the Portfolio screen shows a live countdown.
 
 If the countdown expires without intervention, **all short positions are force-covered at the current market price**. Depending on how far the shorted stocks have moved against you, this can wipe a significant portion of your portfolio in one tick.
+
+If a force-cover leaves your portfolio below **5% of your starting capital**, the game is over. You are presented with a YOU LOSE screen showing your final portfolio value and the total loss. From there you can either keep watching the market in spectator mode (no trading) or return to the title screen to start a new game.
 
 The health bar is always visible on the Portfolio screen when you hold open shorts. An active margin call also replaces the normal status display in the top-right of the market table.
 

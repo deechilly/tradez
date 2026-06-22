@@ -113,6 +113,11 @@ func (m *Model) checkTickAchievements(prevPortfolioVal float64) {
 	// BUST: portfolio < 5% of starting capital
 	if portfolioVal < startingCash*0.05 {
 		m.unlockAchievement("bust")
+		if !m.bankrupt {
+			m.bankrupt = true
+			m.bustCursor = 0
+			m.screen = screenBust
+		}
 	}
 
 	// LOSS PORN: portfolio < 30% of starting capital (70%+ down)
