@@ -250,11 +250,27 @@ Premiums are calculated using Black-Scholes, with the stock's volatility scaled 
 
 Options are **European-style**: you cannot exercise early. To close a position before expiry, navigate to your put in the Portfolio screen and press `x` to sell at the current mark-to-market value. At expiry, ITM contracts auto-settle for intrinsic value; OTM contracts expire worthless.
 
+### Margin Calls
+
+When you hold short positions, the game tracks your **account equity** against your **short exposure** (the total current market value of all borrowed shares). This ratio drives a three-state health system:
+
+| Ratio | State | Display |
+|-------|-------|---------|
+| ≥ 50% | Healthy | Green bar on Portfolio screen |
+| 25–50% | Warning | Yellow bar + WARNING label |
+| < 25% | **Margin Call** | Red bar + countdown timer |
+
+When equity falls below 25% of short exposure, a margin call is issued. You have **15 ticks (~30 seconds)** to restore your margin — cover your shorts, sell long positions, or do both. The margin health bar at the top of the Portfolio screen shows a live countdown.
+
+If the countdown expires without intervention, **all short positions are force-covered at the current market price**. Depending on how far the shorted stocks have moved against you, this can wipe a significant portion of your portfolio in one tick.
+
+The health bar is always visible on the Portfolio screen when you hold open shorts. An active margin call also replaces the normal status display in the top-right of the market table.
+
 ### Risk
 
 - **Shorts can theoretically lose more than you invested** — there is no ceiling on how high a price can go
 - **Limit buy orders reserve cash** — placing many large limit orders can leave you unable to trade spot
-- **Margin calls are not enforced** in this version; a short gone badly wrong can push your cash negative
+- **Margin calls are enforced** — a short that runs against you will trigger a forced cover at market price if you don't act within the grace period
 - **Put premiums are non-refundable** — an OTM put that expires worthless is a total loss of the premium paid; time decay accelerates as expiry approaches
 
 ---
